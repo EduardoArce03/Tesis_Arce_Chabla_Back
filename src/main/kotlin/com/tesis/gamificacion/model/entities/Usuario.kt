@@ -1,9 +1,6 @@
 package com.tesis.gamificacion.model.entities
 
-import jakarta.persistence.Entity
-import jakarta.persistence.GeneratedValue
-import jakarta.persistence.GenerationType
-import jakarta.persistence.Id
+import jakarta.persistence.*
 import java.util.*
 
 @Entity
@@ -17,5 +14,10 @@ data class Usuario (
     var password: String ,
 
     var gameTag: String ,
+
+    var puntosInti: Int = 0,
+    var nivelChakana: Int = 1,
+    @OneToMany(mappedBy = "usuario")
+    val logros: MutableList<Logro> = mutableListOf()
 ) {
 }
