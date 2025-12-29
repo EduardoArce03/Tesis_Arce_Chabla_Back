@@ -1,5 +1,15 @@
 package com.tesis.gamificacion.model.entities
 
+import com.tesis.gamificacion.model.enums.CategoriasCultural
+import jakarta.persistence.Column
+import jakarta.persistence.Entity
+import jakarta.persistence.EnumType
+import jakarta.persistence.Enumerated
+import jakarta.persistence.GeneratedValue
+import jakarta.persistence.GenerationType
+import jakarta.persistence.Id
+import jakarta.persistence.Table
+
 @Entity
 @Table(name = "elementos_culturales")
 data class ElementoCultural(

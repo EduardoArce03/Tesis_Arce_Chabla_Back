@@ -15,7 +15,7 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
 @RestController
-@RequestMapping("/partidas")
+@RequestMapping("/api/partidas")
 @CrossOrigin(origins = ["http://localhost:4200"])
 class PartidaController(
     private val partidaService: PartidaService

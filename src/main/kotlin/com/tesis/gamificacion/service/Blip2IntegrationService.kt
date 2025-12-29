@@ -8,7 +8,7 @@ import com.tesis.gamificacion.model.request.Blip2Response
 
 @Service
 class Blip2IntegrationService (
-    private val restTemplate: RestTemplate
+    //private val restTemplate: RestTemplate
 ){
 
     fun generarNarrativaCultural(
@@ -22,13 +22,14 @@ class Blip2IntegrationService (
         )
 
         // Llamada al servidor del modelo BLIP-2
-        val response = restTemplate.postForObject(
-            "http://tu-servidor-blip2/generate",
-            request,
-            Blip2Response::class.java
-        )
+        //val response = restTemplate.postForObject(
+        //    "http://tu-servidor-blip2/generate",
+        //    request,
+        //    Blip2Response::class.java
+        //)
 
-        return response?.narrativa ?: "Error generando narrativa"
+        //return response?.narrativa ?: "Error generando narrativa"
+        return "xd"
     }
 
     private fun construirPromptCultural(cultura: Cultura, concepto: String): String {
