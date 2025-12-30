@@ -1,23 +1,32 @@
 package com.tesis.gamificacion.model.entities
 
 import jakarta.persistence.*
+import java.time.LocalDateTime
 import java.util.*
 
 @Entity
-data class Usuario (
+@Table(name = "usuarios")
+data class Usuario(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
-    var uuid: UUID? = UUID.randomUUID(),
+    val id: Long? = null,
 
-    var username: String,
+    @Column(nullable = false, length = 100)
+    val nombre: String,
 
-    var password: String ,
+    @Column(unique = true, nullable = false, length = 50)
+    val codigoJugador: String,  // Ej: "MARIA-20241228-1430"
 
-    var gameTag: String ,
+    @Column(nullable = false)
+    val fechaCreacion: LocalDateTime = LocalDateTime.now(),
 
-    var puntosInti: Int = 0,
-    var nivelChakana: Int = 1,
-    @OneToMany(mappedBy = "usuario")
-    val logros: MutableList<Logro> = mutableListOf()
-) {
-}
+    @Column(nullable = false)
+    val activo: Boolean = true,
+
+    // Opcional: para análisis de tesis
+    @Column
+    val edadAproximada: Int? = null,
+
+    @Column
+    val nivelEducativo: String? = null
+)
