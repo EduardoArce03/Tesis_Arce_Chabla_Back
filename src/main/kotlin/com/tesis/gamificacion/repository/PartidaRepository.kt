@@ -22,4 +22,22 @@ interface PartidaRepository : JpaRepository<Partida, Long> {
 
     @Query("SELECT AVG(p.puntuacion) FROM Partida p WHERE p.jugadorId = :jugadorId AND p.completada = true")
     fun findAverageScoreByJugador(jugadorId: String): Double?
+
+    // Buscar solo partidas completadas por jugador
+    fun findByJugadorIdAndCompletadaTrueOrderByFechaInicioDesc(jugadorId: String): List<Partida>
+
+    // Contar partidas completadas por jugador
+    fun countByJugadorIdAndCompletadaTrue(jugadorId: String): Long
+
+    // Buscar partidas por nivel
+    fun findByJugadorIdAndNivelOrderByFechaInicioDesc(
+        jugadorId: String,
+        nivel: com.tesis.gamificacion.model.enums.NivelDificultad
+    ): List<Partida>
+
+    // Buscar partidas por categoría
+    fun findByJugadorIdAndCategoriaOrderByFechaInicioDesc(
+        jugadorId: String,
+        categoria: com.tesis.gamificacion.model.enums.CategoriasCultural
+    ): List<Partida>
 }
