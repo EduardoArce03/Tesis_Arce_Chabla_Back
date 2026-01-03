@@ -51,8 +51,8 @@ interface MisionExploracionRepository : JpaRepository<MisionExploracion, Long> {
 interface UsuarioMisionRepository : JpaRepository<UsuarioMision, Long> {
     fun findByUsuarioId(usuarioId: Long): List<UsuarioMision>
     fun findByUsuarioIdAndMisionId(usuarioId: Long, misionId: Long): UsuarioMision?
-    fun findByUsuarioIdAndCompletadaFalse(usuarioId: Long): List<UsuarioMision>
-    fun countByUsuarioIdAndCompletadaTrue(usuarioId: Long): Long
+    fun findByUsuarioIdAndEstado(usuarioId: Long, estado: EstadoMision): List<UsuarioMision>
+    fun countByUsuarioIdAndEstado(usuarioId: Long, estado: EstadoMision): Long
 }
 
 @Repository

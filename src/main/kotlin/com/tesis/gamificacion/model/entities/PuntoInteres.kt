@@ -210,33 +210,6 @@ data class MisionExploracion(
     val activa: Boolean = true
 )
 
-// Progreso de Misiones
-@Entity
-@Table(name = "usuario_misiones")
-data class UsuarioMision(
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
-    val id: Long? = null,
-
-    @Column(nullable = false)
-    val usuarioId: Long,
-
-    @Column(nullable = false)
-    val misionId: Long,
-
-    @Column(nullable = false, columnDefinition = "TEXT")
-    val progreso: String, // JSON: {"visitados": [1,2], "faltantes": [3]}
-
-    @Column(nullable = false)
-    val completada: Boolean = false,
-
-    @Column(nullable = false)
-    val fechaInicio: LocalDateTime = LocalDateTime.now(),
-
-    @Column
-    val fechaCompletada: LocalDateTime? = null
-)
-
 // Preguntas del Quiz
 @Entity
 @Table(name = "preguntas_quiz")
