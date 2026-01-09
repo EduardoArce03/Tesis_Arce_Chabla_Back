@@ -22,7 +22,7 @@ class ModeloService(
         conceptoClave: String
     ): ModeloResponse? {
 
-        val url = "https://tu-url-ngrok.ngrok-free.app/predict"
+        val url = "https://nonpacific-uninitialed-jarrett.ngrok-free.dev/predict"
 
         val headers = HttpHeaders()
         headers.contentType = MediaType.MULTIPART_FORM_DATA
