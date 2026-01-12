@@ -799,4 +799,205 @@ class MisionService(
             else 0.0
         )
     }
+
+    // ========== OBTENER FASE ACTUAL PARA EJECUCIÓN ==========
+
+    @Transactional(readOnly = true)
+    fun obtenerFaseActualEjecucion(usuarioMisionId: Long): FaseEjecucionDTO {
+        logger.info("📄 Obteniendo fase actual - UsuarioMision: {}", usuarioMisionId)
+
+        val usuarioMision = usuarioMisionRepository.findById(usuarioMisionId)
+            .orElseThrow { IllegalArgumentException("Progreso no encontrado") }
+
+        if (usuarioMision.estado != EstadoMision.EN_PROGRESO) {
+            throw IllegalStateException("La misión no está en progreso")
+        }
+
+        val fase = faseMisionRepository.findByMisionIdAndNumeroFase(
+            usuarioMision.misionId,
+            usuarioMision.faseActual
+        ) ?: throw IllegalStateException("Fase no encontrada")
+
+        return construirFaseEjecucion(fase)
+    }
+
+// ========== RESPONDER FASE QUIZ ==========
+
+    @Transactional
+    fun responderFaseQuiz(
+        usuarioMisionId: Long,
+        faseId: Long,
+        respuestas: List<RespuestaDTO>
+    ): ResponderFaseResponse {
+        logger.info("📝 Respondiendo quiz - UsuarioMision: {}, Fase: {}", usuarioMisionId, faseId)
+
+        val usuarioMision = usuarioMisionRepository.findById(usuarioMisionId)
+            .orElseThrow { IllegalArgumentException("Progreso no encontrado") }
+
+        val fase = faseMisionRepository.findById(faseId)
+            .orElseThrow { IllegalArgumentException("Fase no encontrada") }
+
+        if (fase.tipoFase != TipoFase.QUIZ) {
+            throw IllegalArgumentException("Esta fase no es de tipo QUIZ")
+        }
+
+        val preguntas = preguntaFaseRepository.findByFaseIdOrderByOrden(faseId)
+        val retroalimentacion = mutableListOf<RetroalimentacionDTO>()
+
+        var correctas = 0
+        var puntuacionFase = 0
+
+        respuestas.forEach { respuesta ->
+            val pregunta = preguntas.find { it.id == respuesta.preguntaId }
+                ?: throw IllegalArgumentException("Pregunta no encontrada: ${respuesta.preguntaId}")
+
+            val esCorrecta = pregunta.respuestaCorrecta == respuesta.respuesta
+
+            if (esCorrecta) {
+                correctas++
+                puntuacionFase += pregunta.puntos
+            }
+
+            retroalimentacion.add(
+                RetroalimentacionDTO(
+                    pregunta = pregunta.pregunta,
+                    respuestaUsuario = respuesta.respuesta,
+                    respuestaCorrecta = pregunta.respuestaCorrecta,
+                    esCorrecta = esCorrecta,
+                    explicacion = if (esCorrecta)
+                        pregunta.retroalimentacionCorrecta
+                    else
+                        pregunta.retroalimentacionIncorrecta
+                )
+            )
+        }
+
+        val incorrectas = respuestas.size - correctas
+
+        // Actualizar progreso
+        val nuevoProgreso = usuarioMision.copy(
+            puntuacion = usuarioMision.puntuacion + puntuacionFase,
+            intentos = usuarioMision.intentos + 1,
+            respuestasCorrectas = usuarioMision.respuestasCorrectas + correctas,
+            respuestasIncorrectas = usuarioMision.respuestasIncorrectas + incorrectas
+        )
+
+        return finalizarFase(nuevoProgreso, fase, puntuacionFase, retroalimentacion)
+    }
+
+// ========== AVANZAR A SIGUIENTE FASE ==========
+
+    @Transactional
+    fun avanzarFase(usuarioMisionId: Long): FaseEjecucionDTO? {
+        logger.info("➡️ Avanzando fase - UsuarioMision: {}", usuarioMisionId)
+
+        val usuarioMision = usuarioMisionRepository.findById(usuarioMisionId)
+            .orElseThrow { IllegalArgumentException("Progreso no encontrado") }
+
+        val todasFases = faseMisionRepository.findByMisionIdOrderByNumeroFase(usuarioMision.misionId)
+        val siguienteNumero = usuarioMision.faseActual + 1
+        val siguienteFase = todasFases.find { it.numeroFase == siguienteNumero }
+
+        if (siguienteFase == null) {
+            // Misión completada
+            completarMision(usuarioMision)
+            return null
+        }
+
+        // Actualizar a siguiente fase
+        val actualizado = usuarioMision.copy(
+            faseActual = siguienteNumero
+        )
+
+        usuarioMisionRepository.save(actualizado)
+
+        return construirFaseEjecucion(siguienteFase)
+    }
+
+// ========== COMPLETAR MISIÓN ==========
+
+    @Transactional
+    fun completarMision(usuarioMision: UsuarioMision) {
+        logger.info("🎉 Completando misión - UsuarioMision: {}", usuarioMision.id)
+
+        val mision = misionRepository.findById(usuarioMision.misionId)
+            .orElseThrow { IllegalArgumentException("Misión no encontrada") }
+
+        // Actualizar estado
+        val completada = usuarioMision.copy(
+            estado = EstadoMision.COMPLETADA,
+            tiempoCompletado = LocalDateTime.now()
+        )
+
+        usuarioMisionRepository.save(completada)
+
+        // Dar experiencia al usuario
+        val progreso = progresoExploracionRepository.findByUsuarioId(usuarioMision.usuarioId)
+        if (progreso != null) {
+            progreso.experienciaTotal += mision.experienciaRecompensa
+
+            // Calcular nuevo nivel
+            val nuevoNivel = (progreso.experienciaTotal / 1000) + 1
+            progreso.nivelArqueologo = nuevoNivel
+
+            progresoExploracionRepository.save(progreso)
+        }
+
+        // Otorgar insignias
+        otorgarInsigniasMision(usuarioMision.usuarioId, usuarioMision.misionId)
+
+        logger.info("✅ Misión completada - Usuario: {}, XP: {}",
+            usuarioMision.usuarioId, mision.experienciaRecompensa)
+    }
+
+    // ========== RESPONDER PREGUNTA ÚNICA (TU ESTRUCTURA) ==========
+
+    @Transactional
+    fun responderFaseQuizUnico(
+        usuarioMisionId: Long,
+        preguntaId: Long,
+        respuesta: String
+    ): ResponderFaseResponse {
+        logger.info("📝 Respondiendo pregunta única - UsuarioMision: {}, Pregunta: {}", usuarioMisionId, preguntaId)
+
+        val usuarioMision = usuarioMisionRepository.findById(usuarioMisionId)
+            .orElseThrow { IllegalArgumentException("Progreso no encontrado") }
+
+        val pregunta = preguntaFaseRepository.findById(preguntaId)
+            .orElseThrow { IllegalArgumentException("Pregunta no encontrada") }
+
+        val fase = faseMisionRepository.findById(pregunta.faseId)
+            .orElseThrow { IllegalArgumentException("Fase no encontrada") }
+
+        if (fase.tipoFase != TipoFase.QUIZ) {
+            throw IllegalArgumentException("Esta fase no es de tipo QUIZ")
+        }
+
+        // Verificar respuesta
+        val esCorrecta = pregunta.respuestaCorrecta == respuesta
+        val puntuacionFase = if (esCorrecta) pregunta.puntos else 0
+
+        val retroalimentacion = listOf(
+            RetroalimentacionDTO(
+                pregunta = pregunta.pregunta,
+                respuestaUsuario = respuesta,
+                respuestaCorrecta = pregunta.respuestaCorrecta,
+                esCorrecta = esCorrecta,
+                explicacion = if (esCorrecta)
+                    pregunta.retroalimentacionCorrecta
+                else
+                    pregunta.retroalimentacionIncorrecta
+            )
+        )
+
+        // Actualizar progreso
+        val nuevoProgreso = usuarioMision.copy(
+            puntuacion = usuarioMision.puntuacion + puntuacionFase,
+            intentos = usuarioMision.intentos + 1,
+            respuestasCorrectas = if (esCorrecta) usuarioMision.respuestasCorrectas + 1 else usuarioMision.respuestasCorrectas,
+            respuestasIncorrectas = if (!esCorrecta) usuarioMision.respuestasIncorrectas + 1 else usuarioMision.respuestasIncorrectas
+        )
+
+        return finalizarFase(nuevoProgreso, fase, puntuacionFase, retroalimentacion)
+    }
 }

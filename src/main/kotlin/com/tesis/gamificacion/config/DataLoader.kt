@@ -23,84 +23,84 @@ class DataLoader(
             ElementoCultural(
                 nombreKichwa = "Chumpi",
                 nombreEspanol = "Faja",
-                imagenUrl = "https://images.unsplash.com/photo-1617127365659-c47fa864d8bc?w=400",
+                imagenUrl = "https://www.surdoc.cl/sites/default/files/record_images/02619.00.jpg",
                 categoria = CategoriasCultural.VESTIMENTA,
                 descripcion = "Faja tejida tradicionalmente usada en la vestimenta andina"
             ),
             ElementoCultural(
                 nombreKichwa = "Kushma",
                 nombreEspanol = "Túnica",
-                imagenUrl = "https://images.unsplash.com/photo-1594633313593-bab3825d0caf?w=400",
+                imagenUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQkCMBUSenosSvbmY_Nvlm9cKlyFe_C8Ai57A&s",
                 categoria = CategoriasCultural.VESTIMENTA,
                 descripcion = "Túnica tradicional de los pueblos andinos"
             ),
             ElementoCultural(
                 nombreKichwa = "Lliclla",
                 nombreEspanol = "Manta",
-                imagenUrl = "https://images.unsplash.com/photo-1621184455862-c163dfb30e0f?w=400",
+                imagenUrl = "https://img.freepik.com/fotos-premium/coloridas-telas-peruanas-manta-tradicional-lliclla_136753-1303.jpg",
                 categoria = CategoriasCultural.VESTIMENTA,
                 descripcion = "Manta rectangular usada por mujeres andinas"
             ),
             ElementoCultural(
                 nombreKichwa = "Chuspa",
                 nombreEspanol = "Bolsa",
-                imagenUrl = "https://images.unsplash.com/photo-1590874103328-eac38a683ce7?w=400",
+                imagenUrl = "https://upload.wikimedia.org/wikipedia/commons/b/b2/Bag_for_Carrying_Coca_Leaves%2C_Chuspas%2C_20th_Century%2C_30.1165.22.jpg",
                 categoria = CategoriasCultural.VESTIMENTA,
                 descripcion = "Pequeña bolsa tejida para guardar hojas de coca"
             ),
             ElementoCultural(
                 nombreKichwa = "Anaku",
                 nombreEspanol = "Vestido",
-                imagenUrl = "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?w=400",
+                imagenUrl = "https://kinku.com.ec/1571-large_default/anaco-campana-negro.jpg",
                 categoria = CategoriasCultural.VESTIMENTA,
                 descripcion = "Vestido tradicional de las mujeres andinas"
             ),
             ElementoCultural(
                 nombreKichwa = "Unkuna",
                 nombreEspanol = "Pañuelo",
-                imagenUrl = "https://images.unsplash.com/photo-1606224857862-d85ea7c0c455?w=400",
+                imagenUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTNQV3bLDRi77J9Ls-JeC74mwaDd_SRWEBfEw&s",
                 categoria = CategoriasCultural.VESTIMENTA,
                 descripcion = "Pañuelo multiuso usado en ceremonias"
             ),
             ElementoCultural(
                 nombreKichwa = "Chullo",
                 nombreEspanol = "Gorro",
-                imagenUrl = "https://images.unsplash.com/photo-1576871337632-b9aef4c17ab9?w=400",
+                imagenUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/d/db/SKOUFI.JPG/330px-SKOUFI.JPG",
                 categoria = CategoriasCultural.VESTIMENTA,
                 descripcion = "Gorro tejido con orejeras típico de los Andes"
             ),
             ElementoCultural(
                 nombreKichwa = "Usuta",
                 nombreEspanol = "Sandalias",
-                imagenUrl = "https://images.unsplash.com/photo-1543163521-1bf539c55dd2?w=400",
+                imagenUrl = "https://plazavea.vteximg.com.br/arquivos/ids/22575729-1000-1000/imageUrl_2.jpg?v=638053540538270000",
                 categoria = CategoriasCultural.VESTIMENTA,
                 descripcion = "Sandalias tradicionales andinas"
             ),
             ElementoCultural(
                 nombreKichwa = "Punchukuna",
                 nombreEspanol = "Poncho",
-                imagenUrl = "https://images.unsplash.com/photo-1617127365659-c47fa864d8bc?w=400",
+                imagenUrl = "https://alpacaoficial.com/cdn/shop/files/Poncho-Cayambe_1080x.png?v=1694479988",
                 categoria = CategoriasCultural.VESTIMENTA,
                 descripcion = "Prenda exterior de abrigo"
             ),
             ElementoCultural(
                 nombreKichwa = "Sombrero",
                 nombreEspanol = "Sombrero",
-                imagenUrl = "https://images.unsplash.com/photo-1533055640609-24b498dfd74c?w=400",
+                imagenUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRHVjz_A9wElUvHA7B3xCBA01WTb6PfEpqF5w&s",
                 categoria = CategoriasCultural.VESTIMENTA,
                 descripcion = "Sombrero tradicional andino"
             ),
             ElementoCultural(
                 nombreKichwa = "Pacha",
                 nombreEspanol = "Bayeta",
-                imagenUrl = "https://images.unsplash.com/photo-1590736969955-71cc94901144?w=400",
+                imagenUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQrj4noWKh9Y8a-nw5V6vvD3MScGAL3bY04vg&s",
                 categoria = CategoriasCultural.VESTIMENTA,
                 descripcion = "Tela tradicional andina"
             ),
             ElementoCultural(
                 nombreKichwa = "Makiwatana",
                 nombreEspanol = "Pulsera",
-                imagenUrl = "https://images.unsplash.com/photo-1578632292335-df3abbb0d586?w=400",
+                imagenUrl = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTA14w6fmojiUJXavyOYUaUopEIbBWTNGyAcA&s",
                 categoria = CategoriasCultural.VESTIMENTA,
                 descripcion = "Adorno de mano tradicional"
             ),

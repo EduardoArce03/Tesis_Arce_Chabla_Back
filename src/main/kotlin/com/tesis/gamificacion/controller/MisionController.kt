@@ -172,4 +172,73 @@ class MisionController(
             throw e
         }
     }
+
+    /**
+     * GET /api/misiones/progreso/{usuarioMisionId}/fase-actual
+     * Obtener la fase actual en ejecución
+     */
+
+    /**
+     * POST /api/misiones/progreso/{usuarioMisionId}/responder-quiz
+     * Responder un quiz de una fase
+     */
+    @PostMapping("/progreso/{usuarioMisionId}/responder-quiz")
+    fun responderQuiz(
+        @PathVariable usuarioMisionId: Long,
+        @RequestBody request: ResponderQuizRequest
+    ): ResponseEntity<ResponderFaseResponse> {
+        logger.info("🌐 POST /misiones/progreso/{}/responder-quiz", usuarioMisionId)
+
+        return try {
+            val resultado = misionService.responderFaseQuizUnico(
+                usuarioMisionId,
+                request.preguntaId,
+                request.respuesta
+            )
+
+            logger.info("✅ Quiz respondido - Correcto: {}, Puntuación: {}",
+                resultado.correctas > 0, resultado.puntuacion)
+
+            if (resultado.misionCompletada) {
+                logger.info("🎉 ¡Misión completada! Insignias: {}", resultado.insigniasObtenidas.size)
+            }
+
+            ResponseEntity.ok(resultado)
+        } catch (e: IllegalArgumentException) {
+            logger.error("❌ Error validación: {}", e.message)
+            throw e
+        } catch (e: Exception) {
+            logger.error("❌ Error respondiendo quiz: {}", e.message, e)
+            throw e
+        }
+    }
+
+    /**
+     * POST /api/misiones/progreso/{usuarioMisionId}/avanzar
+     * Avanzar a la siguiente fase
+     */
+    @PostMapping("/progreso/{usuarioMisionId}/avanzar")
+    fun avanzarFase(
+        @PathVariable usuarioMisionId: Long
+    ): ResponseEntity<FaseEjecucionDTO?> {
+        logger.info("🌐 POST /misiones/progreso/{}/avanzar", usuarioMisionId)
+
+        return try {
+            val siguienteFase = misionService.avanzarFase(usuarioMisionId)
+
+            if (siguienteFase != null) {
+                logger.info("✅ Avanzado a fase {}", siguienteFase.numeroFase)
+            } else {
+                logger.info("🎉 Misión completada!")
+            }
+
+            ResponseEntity.ok(siguienteFase)
+        } catch (e: IllegalArgumentException) {
+            logger.error("❌ Error: {}", e.message)
+            throw e
+        } catch (e: Exception) {
+            logger.error("❌ Error avanzando fase: {}", e.message, e)
+            throw e
+        }
+    }
 }
