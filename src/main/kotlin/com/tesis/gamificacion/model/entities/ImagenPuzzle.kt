@@ -3,6 +3,7 @@ package com.tesis.gamificacion.model.entities
 
 import com.tesis.gamificacion.model.enums.CategoriasCultural
 import jakarta.persistence.*
+import java.time.LocalDateTime
 
 @Entity
 @Table(name = "imagenes_puzzle")
@@ -50,37 +51,42 @@ data class PartidaPuzzle(
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null,
 
-    @Column(nullable = false)
+    @Column(nullable = false, length = 100)
     val jugadorId: String,
 
-    @ManyToOne
-    @JoinColumn(name = "imagen_id")
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "imagen_id", nullable = false)
     val imagen: ImagenPuzzle,
 
     @Column(nullable = false)
-    val gridSize: Int,  // 3, 4, 5, 6
+    val gridSize: Int,
 
     @Column(nullable = false)
-    var movimientos: Int = 0,
-
-    @Column(nullable = false)
-    var tiempoSegundos: Int = 0,
-
-    @Column(nullable = false)
-    var hintsUsados: Int = 0,
-
-    @Column(nullable = false)
-    var estrellas: Int = 0,  // 1-3 estrellas
+    val tiempoLimiteSegundos: Int, // ⬅️ NUEVO: Tiempo inicial dado
 
     @Column(nullable = false)
     var completada: Boolean = false,
 
-    @Column(nullable = false)
-    var respondioCorrectamente: Boolean = false,
+    @Column
+    var movimientos: Int? = null,
 
-    val fechaInicio: java.time.LocalDateTime = java.time.LocalDateTime.now(),
+    @Column
+    var tiempoRestanteSegundos: Int? = null, // ⬅️ CAMBIADO: De tiempoSegundos a tiempoRestante
 
-    var fechaFin: java.time.LocalDateTime? = null
+    @Column
+    var hintsUsados: Int? = null,
+
+    @Column
+    var estrellas: Int? = null,
+
+    @Column
+    var puntosObtenidos: Int? = null,
+
+    @Column(nullable = false, updatable = false)
+    val fechaInicio: LocalDateTime = LocalDateTime.now(),
+
+    @Column
+    var fechaFin: LocalDateTime? = null
 )
 
 @Entity
@@ -90,11 +96,14 @@ data class ProgresoPuzzle(
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null,
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false, unique = true, length = 100)
     val jugadorId: String,
 
     @Column(nullable = false)
     var estrellasTotal: Int = 0,
+
+    @Column(nullable = false)
+    var puntosTotal: Int = 0, // ⬅️ Este campo debe existir
 
     @Column(nullable = false)
     var puzzlesCompletados: Int = 0,
@@ -103,7 +112,10 @@ data class ProgresoPuzzle(
     var mejorTiempo: Int = Int.MAX_VALUE,
 
     @ElementCollection
-    @CollectionTable(name = "imagenes_desbloqueadas", joinColumns = [JoinColumn(name = "progreso_id")])
+    @CollectionTable(
+        name = "imagenes_desbloqueadas",
+        joinColumns = [JoinColumn(name = "progreso_id")]
+    )
     @Column(name = "imagen_id")
-    var imagenesDesbloqueadas: MutableSet<Long> = mutableSetOf()
+    val imagenesDesbloqueadas: MutableSet<Long> = mutableSetOf()
 )

@@ -49,3 +49,9 @@ data class DatoCuriosoResponse(
     val titulo: String,
     val descripcion: String
 )
+
+data class PreguntaRapidaResponse(
+    val pregunta: String,
+    val opciones: List<String>,
+    val respuestaCorrecta: String
+)

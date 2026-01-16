@@ -32,16 +32,16 @@ data class ImagenPuzzleDTO(
 
 data class IniciarPuzzleResponse(
     val partidaId: Long,
-    val imagen: ImagenPuzzleDTO,
-    val mensajeBienvenida: String
+    val mensajeBienvenida: String,
+    val tiempoLimiteSegundos: Int, // ⬅️ NUEVO: Enviar tiempo límite al frontend
+    val gridSize: Int
 )
 
 data class FinalizarPuzzleResponse(
     val estrellas: Int,
-    val tiempoTotal: Int,
-    val movimientosTotal: Int,
-    val hintsUsados: Int,
     val mensaje: String,
+    val puntosObtenidos: Int,
+    val tiempoFinal: Int, // Tiempo que usó (límite - restante)
     val siguienteImagenDesbloqueada: ImagenPuzzleDTO?,
     val progresoActual: ProgresoJugadorDTO
 )
@@ -49,6 +49,7 @@ data class FinalizarPuzzleResponse(
 data class ProgresoJugadorDTO(
     val jugadorId: String,
     val estrellasTotal: Int,
+    val puntosTotal: Int,
     val puzzlesCompletados: Int,
     val mejorTiempo: Int,
     val imagenesDesbloqueadas: Int

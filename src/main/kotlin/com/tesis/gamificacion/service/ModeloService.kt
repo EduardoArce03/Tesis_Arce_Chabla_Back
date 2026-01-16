@@ -258,4 +258,95 @@ class ModeloService(
             else -> 0
         }
     }
+
+    // Agregar al ModeloService.kt
+
+    /**
+     * Genera una pregunta rápida de trivia para el puzzle
+     */
+    fun generarPreguntaRapidaPuzzle(
+        imagenBytes: ByteArray,
+        titulo: String,
+        nombreKichwa: String,
+        categoria: String
+    ): PreguntaRapidaResponse {
+        val url = "$BASE_URL/pregunta-rapida-puzzle"
+
+        val body: MultiValueMap<String, Any> = LinkedMultiValueMap()
+
+        // Crear resource de imagen
+        val imagenResource = crearImagenResource(imagenBytes, "puzzle_image.jpg")
+
+        body.add("image", imagenResource)
+        body.add("titulo", titulo)
+        body.add("nombre_kichwa", nombreKichwa)
+        body.add("categoria", categoria)
+
+        return try {
+            println("🎯 Generando pregunta rápida para: $titulo")
+            ejecutarLlamadaIA(url, body, PreguntaRapidaResponse::class.java)
+                ?: generarPreguntaFallback(titulo, nombreKichwa, categoria)
+        } catch (e: Exception) {
+            println("❌ Error generando pregunta: ${e.message}")
+            generarPreguntaFallback(titulo, nombreKichwa, categoria)
+        }
+    }
+
+    /**
+     * Genera una pregunta fallback si la IA falla
+     */
+    private fun generarPreguntaFallback(
+        titulo: String,
+        nombreKichwa: String,
+        categoria: String
+    ): PreguntaRapidaResponse {
+        val preguntas = mapOf(
+            "VESTIMENTA" to listOf(
+                PreguntaRapidaResponse(
+                    pregunta = "¿Cómo se dice '$titulo' en kichwa?",
+                    opciones = listOf(nombreKichwa, "Chumbi", "Anaku", "Ushuta"),
+                    respuestaCorrecta = nombreKichwa
+                ),
+                PreguntaRapidaResponse(
+                    pregunta = "¿A qué cultura pertenece el $titulo?",
+                    opciones = listOf("Cañari", "Inca", "Azteca", "Maya"),
+                    respuestaCorrecta = "Cañari"
+                )
+            ),
+            "MUSICA" to listOf(
+                PreguntaRapidaResponse(
+                    pregunta = "¿En qué ocasiones se usa el $titulo?",
+                    opciones = listOf("Festividades", "Solo ceremonias", "Nunca", "Solo bodas"),
+                    respuestaCorrecta = "Festividades"
+                ),
+                PreguntaRapidaResponse(
+                    pregunta = "¿Cómo se dice '$titulo' en kichwa?",
+                    opciones = listOf(nombreKichwa, "Runa", "Wasi", "Mama"),
+                    respuestaCorrecta = nombreKichwa
+                )
+            ),
+            "LUGARES" to listOf(
+                PreguntaRapidaResponse(
+                    pregunta = "¿Dónde se encuentra $titulo?",
+                    opciones = listOf("Ecuador", "Perú", "Bolivia", "Colombia"),
+                    respuestaCorrecta = "Ecuador"
+                ),
+                PreguntaRapidaResponse(
+                    pregunta = "¿Qué significa '$nombreKichwa' en español?",
+                    opciones = listOf(titulo, "Montaña", "Río", "Camino"),
+                    respuestaCorrecta = titulo
+                )
+            ),
+            "FESTIVIDADES" to listOf(
+                PreguntaRapidaResponse(
+                    pregunta = "¿Cuál es el nombre en kichwa de $titulo?",
+                    opciones = listOf(nombreKichwa, "Inti Raymi", "Pawkar Raymi", "Kulla Raymi"),
+                    respuestaCorrecta = nombreKichwa
+                )
+            )
+        )
+
+        val preguntasCategoria = preguntas[categoria.uppercase()] ?: preguntas["VESTIMENTA"]!!
+        return preguntasCategoria.random()
+    }
 }

@@ -9,7 +9,7 @@ data class IniciarPuzzleRequest(
 data class FinalizarPuzzleRequest(
     val partidaId: Long,
     val movimientos: Int,
-    val tiempoSegundos: Int,
+    val tiempoRestante: Int, // ⬅️ CAMBIADO: De tiempoSegundos a tiempoRestante
     val hintsUsados: Int
 )
 

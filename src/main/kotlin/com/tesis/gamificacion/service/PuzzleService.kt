@@ -12,6 +12,7 @@ import com.tesis.gamificacion.repository.*
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.LocalDateTime
 import kotlin.math.min
 
 @Service
@@ -50,11 +51,15 @@ class PuzzleService(
     /**
      * Obtiene el progreso del jugador
      */
+    /**
+     * Obtiene el progreso del jugador
+     */
     fun obtenerProgreso(jugadorId: String): ProgresoJugadorDTO {
         val progreso = progresoPuzzleRepository.findByJugadorId(jugadorId)
             ?: return ProgresoJugadorDTO(
                 jugadorId = jugadorId,
                 estrellasTotal = 0,
+                puntosTotal = 0, // ⬅️ AGREGADO
                 puzzlesCompletados = 0,
                 mejorTiempo = 0,
                 imagenesDesbloqueadas = 1 // La primera siempre desbloqueada
@@ -63,134 +68,219 @@ class PuzzleService(
         return ProgresoJugadorDTO(
             jugadorId = progreso.jugadorId,
             estrellasTotal = progreso.estrellasTotal,
+            puntosTotal = progreso.puntosTotal, // ⬅️ AGREGADO
             puzzlesCompletados = progreso.puzzlesCompletados,
             mejorTiempo = if (progreso.mejorTiempo == Int.MAX_VALUE) 0 else progreso.mejorTiempo,
             imagenesDesbloqueadas = progreso.imagenesDesbloqueadas.size + 1 // +1 por la primera
         )
     }
 
-    /**
-     * Inicia una nueva partida de puzzle
-     */
     @Transactional
     fun iniciarPuzzle(request: IniciarPuzzleRequest): IniciarPuzzleResponse {
         val imagen = imagenPuzzleRepository.findById(request.imagenId)
-            .orElseThrow { IllegalArgumentException("Imagen no encontrada: ${request.imagenId}") }
+            .orElseThrow { IllegalArgumentException("Imagen no encontrada") }
 
-        // Verificar que esté desbloqueada
-        val progreso = progresoPuzzleRepository.findByJugadorId(request.jugadorId)
-        val desbloqueada = imagen.ordenDesbloqueo == 1 ||
-                progreso?.imagenesDesbloqueadas?.contains(imagen.id) == true
-
-        if (!desbloqueada) {
-            throw IllegalStateException("Esta imagen aún no está desbloqueada")
+        if (!imagen.desbloqueada) {
+            throw IllegalStateException("Esta imagen está bloqueada")
         }
 
-        // Validar gridSize
-        if (request.gridSize < imagen.dificultadMinima || request.gridSize > imagen.dificultadMaxima) {
-            throw IllegalArgumentException(
-                "Grid size debe estar entre ${imagen.dificultadMinima} y ${imagen.dificultadMaxima}"
-            )
-        }
+        // ⬇️ CALCULAR TIEMPO LÍMITE SEGÚN DIFICULTAD
+        val tiempoLimite = calcularTiempoLimite(request.gridSize)
 
-        // Crear partida
         val partida = PartidaPuzzle(
             jugadorId = request.jugadorId,
             imagen = imagen,
-            gridSize = request.gridSize
+            gridSize = request.gridSize,
+            tiempoLimiteSegundos = tiempoLimite // ⬅️ NUEVO
         )
+
         val partidaGuardada = partidaPuzzleRepository.save(partida)
 
-        println("✅ Partida iniciada: ID=${partidaGuardada.id}, Imagen=${imagen.titulo}")
+        println("🎮 Partida iniciada: ID=${partidaGuardada.id}, Tiempo límite: ${tiempoLimite}s")
 
         return IniciarPuzzleResponse(
             partidaId = partidaGuardada.id!!,
-            imagen = ImagenPuzzleDTO.fromEntity(imagen, true),
-            mensajeBienvenida = "¡Arma este rompecabezas de ${imagen.titulo}!"
+            mensajeBienvenida = "¡Descubre ${imagen.titulo}! Tienes ${formatearTiempo(tiempoLimite)}",
+            tiempoLimiteSegundos = tiempoLimite, // ⬅️ NUEVO
+            gridSize = request.gridSize
         )
     }
 
-    /**
-     * Finaliza una partida y calcula resultados
-     */
+    // ⬇️ NUEVA FUNCIÓN: Calcular tiempo según dificultad
+    private fun calcularTiempoLimite(gridSize: Int): Int {
+        return when (gridSize) {
+            3 -> 300  // 3x3 = 5 minutos
+            4 -> 480  // 4x4 = 8 minutos
+            5 -> 600  // 5x5 = 10 minutos
+            6 -> 720  // 6x6 = 12 minutos
+            else -> 480
+        }
+    }
+
+    // ⬇️ NUEVA FUNCIÓN: Formatear tiempo para mensaje
+    private fun formatearTiempo(segundos: Int): String {
+        val minutos = segundos / 60
+        val segs = segundos % 60
+        return if (segs > 0) {
+            "${minutos}m ${segs}s"
+        } else {
+            "${minutos} minutos"
+        }
+    }
+
     @Transactional
     fun finalizarPuzzle(request: FinalizarPuzzleRequest): FinalizarPuzzleResponse {
         val partida = partidaPuzzleRepository.findById(request.partidaId)
-            .orElseThrow { IllegalArgumentException("Partida no encontrada: ${request.partidaId}") }
+            .orElseThrow { IllegalArgumentException("Partida no encontrada") }
 
         if (partida.completada) {
             throw IllegalStateException("Esta partida ya fue completada")
         }
 
-        // Calcular estrellas
+        // Calcular estrellas y puntos
         val estrellas = calcularEstrellas(
-            gridSize = partida.gridSize,
-            tiempoSegundos = request.tiempoSegundos,
-            hintsUsados = request.hintsUsados
+            tiempoRestante = request.tiempoRestante,
+            tiempoLimite = partida.tiempoLimiteSegundos,
+            movimientos = request.movimientos,
+            gridSize = partida.gridSize
+        )
+
+        val puntos = calcularPuntos(
+            estrellas = estrellas,
+            tiempoRestante = request.tiempoRestante,
+            movimientos = request.movimientos,
+            gridSize = partida.gridSize
         )
 
         // Actualizar partida
+        partida.completada = true
         partida.movimientos = request.movimientos
-        partida.tiempoSegundos = request.tiempoSegundos
+        partida.tiempoRestanteSegundos = request.tiempoRestante
         partida.hintsUsados = request.hintsUsados
         partida.estrellas = estrellas
-        partida.completada = true
-        partida.fechaFin = java.time.LocalDateTime.now()
+        partida.puntosObtenidos = puntos
+        partida.fechaFin = LocalDateTime.now()
+
         partidaPuzzleRepository.save(partida)
 
-        // Actualizar progreso
-        val progreso = obtenerOCrearProgreso(partida.jugadorId)
-        progreso.estrellasTotal += estrellas
-        progreso.puzzlesCompletados++
-        progreso.mejorTiempo = min(progreso.mejorTiempo, request.tiempoSegundos)
+        println("✅ Puzzle completado: ${partida.imagen.titulo} | Estrellas: $estrellas | Puntos: $puntos")
 
-        // Desbloquear siguiente
+        // Obtener o crear progreso
+        val progreso = obtenerOCrearProgreso(partida.jugadorId)
+
+        // Actualizar estadísticas
+        progreso.estrellasTotal += estrellas
+        progreso.puntosTotal += puntos
+        progreso.puzzlesCompletados += 1
+
+        // Actualizar mejor tiempo (ahora es tiempo RESTANTE, mayor es mejor)
+        val tiempoUsado = calcularTiempoUsado(partida.tiempoLimiteSegundos, request.tiempoRestante)
+        if (progreso.mejorTiempo == Int.MAX_VALUE || tiempoUsado < progreso.mejorTiempo) {
+            progreso.mejorTiempo = tiempoUsado
+        }
+
+        // Desbloquear siguiente imagen si aplica
         val siguienteImagen = desbloquearSiguienteImagen(progreso, partida.imagen)
 
+        // Guardar progreso
         progresoPuzzleRepository.save(progreso)
 
-        println("✅ Puzzle completado: ⭐x$estrellas, ${request.tiempoSegundos}s")
+        // Generar mensaje
+        val mensaje = when (estrellas) {
+            3 -> "¡Excelente! Completaste el puzzle con ${formatearTiempo(request.tiempoRestante)} restantes ⭐⭐⭐"
+            2 -> "¡Muy bien! Buen tiempo y eficiencia ⭐⭐"
+            1 -> "¡Completado! Pudiste terminarlo a tiempo ⭐"
+            else -> "Puzzle completado"
+        }
+
+        println("📊 Progreso actualizado: ${progreso.estrellasTotal} estrellas | ${progreso.puzzlesCompletados} puzzles")
 
         return FinalizarPuzzleResponse(
             estrellas = estrellas,
-            tiempoTotal = request.tiempoSegundos,
-            movimientosTotal = request.movimientos,
-            hintsUsados = request.hintsUsados,
-            mensaje = generarMensajeEstrellas(estrellas),
+            mensaje = mensaje,
+            puntosObtenidos = puntos,
+            tiempoFinal = tiempoUsado,
             siguienteImagenDesbloqueada = siguienteImagen?.let {
-                ImagenPuzzleDTO.fromEntity(it, true)
+                ImagenPuzzleDTO(
+                    id = it.id!!,
+                    titulo = it.titulo,
+                    nombreKichwa = it.nombreKichwa,
+                    imagenUrl = it.imagenUrl,
+                    categoria = it.categoria.name, // ⬅️ AGREGADO .name
+                    dificultadMinima = it.dificultadMinima,
+                    dificultadMaxima = it.dificultadMaxima,
+                    ordenDesbloqueo = it.ordenDesbloqueo,
+                    desbloqueada = true // Ahora está desbloqueada
+                )
             },
             progresoActual = ProgresoJugadorDTO(
                 jugadorId = progreso.jugadorId,
                 estrellasTotal = progreso.estrellasTotal,
+                puntosTotal = progreso.puntosTotal,
                 puzzlesCompletados = progreso.puzzlesCompletados,
-                mejorTiempo = progreso.mejorTiempo,
+                mejorTiempo = if (progreso.mejorTiempo == Int.MAX_VALUE) 0 else progreso.mejorTiempo,
                 imagenesDesbloqueadas = progreso.imagenesDesbloqueadas.size + 1
             )
         )
     }
 
-    /**
-     * Calcula las estrellas obtenidas según rendimiento
-     */
-    private fun calcularEstrellas(gridSize: Int, tiempoSegundos: Int, hintsUsados: Int): Int {
-        val tiempoIdeal = TIEMPOS_IDEALES[gridSize] ?: 120
+    // ⬇️ NUEVA FUNCIÓN: Calcular tiempo usado (para estadísticas)
+    private fun calcularTiempoUsado(tiempoLimite: Int, tiempoRestante: Int): Int {
+        return tiempoLimite - tiempoRestante
+    }
 
-        var estrellas = 3
+    // ⬇️ NUEVA LÓGICA: Calcular estrellas por tiempo RESTANTE
+    private fun calcularEstrellas(
+        tiempoRestante: Int,
+        tiempoLimite: Int,
+        movimientos: Int,
+        gridSize: Int
+    ): Int {
+        val porcentajeTiempoRestante = (tiempoRestante.toDouble() / tiempoLimite) * 100
+        val movimientosOptimos = gridSize * gridSize * 3
 
-        // Criterio 1: Tiempo
-        if (tiempoSegundos > tiempoIdeal * 1.5) {
-            estrellas = 2  // Pasó 50% del tiempo ideal
-        } else if (tiempoSegundos > tiempoIdeal * 2) {
-            estrellas = 1  // Pasó el doble del tiempo ideal
+        return when {
+            // ⭐⭐⭐ 3 estrellas: Más del 50% tiempo restante Y pocos movimientos
+            porcentajeTiempoRestante >= 50 && movimientos < movimientosOptimos -> 3
+
+            // ⭐⭐ 2 estrellas: Más del 25% tiempo restante Y movimientos moderados
+            porcentajeTiempoRestante >= 25 && movimientos < movimientosOptimos * 1.5 -> 2
+
+            // ⭐ 1 estrella: Completó antes de que se acabe el tiempo
+            else -> 1
+        }
+    }
+
+    // ⬇️ NUEVA LÓGICA: Calcular puntos por tiempo RESTANTE
+    private fun calcularPuntos(
+        estrellas: Int,
+        tiempoRestante: Int,
+        movimientos: Int,
+        gridSize: Int
+    ): Int {
+        var puntos = 1000 // Base
+
+        // Bonus por estrellas
+        puntos += estrellas * 500
+
+        // Bonus por tiempo restante
+        puntos += when {
+            tiempoRestante >= 300 -> 500 // Más de 5 min restantes
+            tiempoRestante >= 180 -> 300 // Más de 3 min restantes
+            tiempoRestante >= 60 -> 100  // Más de 1 min restante
+            else -> 0
         }
 
-        // Criterio 2: Hints (reduce 1 estrella si usó hints)
-        if (hintsUsados > 0 && estrellas > 1) {
-            estrellas--
+        // Bonus por eficiencia en movimientos
+        val movimientosOptimos = gridSize * gridSize * 3
+        puntos += when {
+            movimientos < movimientosOptimos -> 400
+            movimientos < movimientosOptimos * 1.3 -> 200
+            movimientos < movimientosOptimos * 1.6 -> 100
+            else -> 0
         }
 
-        return kotlin.math.max(1, estrellas)
+        return puntos
     }
 
     /**
