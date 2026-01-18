@@ -80,18 +80,21 @@ class PuzzleService(
         val imagen = imagenPuzzleRepository.findById(request.imagenId)
             .orElseThrow { IllegalArgumentException("Imagen no encontrada") }
 
-        if (!imagen.desbloqueada) {
+        // ⬇️ NUEVA LÓGICA: Verificar si está desbloqueada para ESTE jugador
+        val estaDesbloqueada = verificarImagenDesbloqueada(request.jugadorId, imagen)
+
+        if (!estaDesbloqueada) {
             throw IllegalStateException("Esta imagen está bloqueada")
         }
 
-        // ⬇️ CALCULAR TIEMPO LÍMITE SEGÚN DIFICULTAD
+        // Calcular tiempo límite según dificultad
         val tiempoLimite = calcularTiempoLimite(request.gridSize)
 
         val partida = PartidaPuzzle(
             jugadorId = request.jugadorId,
             imagen = imagen,
             gridSize = request.gridSize,
-            tiempoLimiteSegundos = tiempoLimite // ⬅️ NUEVO
+            tiempoLimiteSegundos = tiempoLimite
         )
 
         val partidaGuardada = partidaPuzzleRepository.save(partida)
@@ -101,9 +104,24 @@ class PuzzleService(
         return IniciarPuzzleResponse(
             partidaId = partidaGuardada.id!!,
             mensajeBienvenida = "¡Descubre ${imagen.titulo}! Tienes ${formatearTiempo(tiempoLimite)}",
-            tiempoLimiteSegundos = tiempoLimite, // ⬅️ NUEVO
+            tiempoLimiteSegundos = tiempoLimite,
             gridSize = request.gridSize
         )
+    }
+
+    // ⬇️ NUEVO MÉTODO: Verificar si imagen está desbloqueada para el jugador
+    private fun verificarImagenDesbloqueada(jugadorId: String, imagen: ImagenPuzzle): Boolean {
+        // La primera imagen siempre está desbloqueada
+        if (imagen.ordenDesbloqueo == 1) {
+            return true
+        }
+
+        // Verificar en el progreso del jugador
+        val progreso = progresoPuzzleRepository.findByJugadorId(jugadorId)
+            ?: return false // Si no tiene progreso, solo tiene acceso a la primera
+
+        // Verificar si la imagen está en la lista de desbloqueadas
+        return imagen.id!! in progreso.imagenesDesbloqueadas
     }
 
     // ⬇️ NUEVA FUNCIÓN: Calcular tiempo según dificultad
