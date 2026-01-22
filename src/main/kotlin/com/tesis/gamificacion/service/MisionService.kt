@@ -7,6 +7,9 @@ import com.tesis.gamificacion.model.enums.*
 import com.tesis.gamificacion.repository.*
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import com.tesis.gamificacion.dto.misiones.ProgresoMisionDTO
+import com.tesis.gamificacion.model.request.MisionDTO
+import com.tesis.gamificacion.model.request.RecompensaDTO
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -55,6 +58,9 @@ class MisionService(
                 EstadoMision.EN_PROGRESO -> enProgreso.add(misionCard)
                 EstadoMision.COMPLETADA -> completadas.add(misionCard)
                 EstadoMision.BLOQUEADA -> bloqueadas.add(misionCard)
+                else -> {
+                    throw IllegalArgumentException("error")
+                }
             }
         }
 
@@ -1000,4 +1006,214 @@ class MisionService(
 
         return finalizarFase(nuevoProgreso, fase, puntuacionFase, retroalimentacion)
     }
+
+    /**
+     * Obtener misiones disponibles para una partida
+     * (Adaptador para ExploracionService)
+     */
+    /**
+     * Obtener misiones disponibles para una partida
+     * (Adaptador para ExploracionService)
+     */
+    @Transactional(readOnly = true)
+    fun obtenerMisionesDisponibles(partidaId: Long): List<MisionDTO> {
+        // Obtener usuarioId desde partidaId
+        val usuarioId = obtenerUsuarioDePartida(partidaId)
+
+        val listado = obtenerListadoMisiones(usuarioId)
+
+        // Combinar disponibles y en progreso
+        return (listado.disponibles + listado.enProgreso).map { card ->
+            MisionDTO(
+                id = card.id,
+                titulo = card.titulo,
+                descripcion = card.descripcionCorta,
+                tipo = TipoMision.NARRATIVA, // ✅ Ajusta según tu lógica
+                estado = card.estado,
+                progreso = card.progreso?.faseActual ?: 0, // ✅ Acceder correctamente
+                objetivo = card.progreso?.totalFases ?: 1,
+                recompensaPuntos = card.recompensas.puntos,
+                fechaLimite = null
+            )
+        }
+    }
+
+    /**
+     * Helper: Obtener usuarioId desde partidaId
+     */
+
+
+    /**
+     * Completar misión desde ExploracionService
+     */
+    @Transactional
+    fun completarMision(partidaId: Long, misionId: Long): CompletarMisionResult {
+        val usuarioId = obtenerUsuarioDePartida(partidaId)
+
+        val usuarioMision = usuarioMisionRepository.findByUsuarioIdAndMisionId(usuarioId, misionId)
+            ?: throw IllegalArgumentException("No tienes esta misión iniciada")
+
+        if (usuarioMision.estado == EstadoMision.COMPLETADA) {
+            return CompletarMisionResult(
+                completada = false,
+                mensaje = "Ya completaste esta misión",
+                recompensas = emptyList()
+            )
+        }
+
+        // Completar misión
+        completarMision(usuarioMision)
+
+        val mision = misionRepository.findById(misionId)
+            .orElseThrow { IllegalArgumentException("Misión no encontrada") }
+
+        // Obtener insignias obtenidas
+        val insignias = obtenerInsigniasMision(misionId)
+            .filter { insignia ->
+                usuarioInsigniaRepository.findByUsuarioIdAndInsigniaId(usuarioId, insignia.id) != null
+            }
+
+        val recompensas = mutableListOf<RecompensaDTO>()
+
+        recompensas.add(
+            RecompensaDTO(
+                tipo = "EXPERIENCIA",
+                cantidad = mision.experienciaRecompensa,
+                descripcion = "Experiencia de arqueólogo"
+            )
+        )
+
+        recompensas.add(
+            RecompensaDTO(
+                tipo = "PUNTOS",
+                cantidad = mision.puntosRecompensa,
+                descripcion = "Puntos de exploración"
+            )
+        )
+
+        insignias.forEach { insignia ->
+            recompensas.add(
+                RecompensaDTO(
+                    tipo = "INSIGNIA",
+                    cantidad = 1,
+                    descripcion = "Insignia: ${insignia.nombre}"
+                )
+            )
+        }
+
+        return CompletarMisionResult(
+            completada = true,
+            mensaje = "¡Misión completada exitosamente!",
+            recompensas = recompensas
+        )
+    }
+
+    /**
+     * Generar misiones iniciales al crear una partida
+     */
+    @Transactional
+    fun generarMisionesIniciales(partidaId: Long) {
+        val usuarioId = obtenerUsuarioDePartida(partidaId)
+
+        // Buscar misiones de nivel 1 (iniciales)
+        val misionesIniciales = misionRepository.findByNivelMinimoAndActivaTrue(1)
+
+        logger.info("🎯 Generando {} misiones iniciales para partida {}",
+            misionesIniciales.size, partidaId)
+
+        // Las misiones se vuelven disponibles automáticamente
+        // No necesitamos crear registros, ya están en la BD
+
+        // Opcional: Crear una misión tutorial automáticamente iniciada
+        val misionTutorial = misionesIniciales.firstOrNull {
+            it.titulo.contains("Tutorial", ignoreCase = true)
+        }
+
+        if (misionTutorial != null) {
+            val yaIniciada = usuarioMisionRepository.findByUsuarioIdAndMisionId(
+                usuarioId,
+                misionTutorial.id!!
+            )
+
+            if (yaIniciada == null) {
+                usuarioMisionRepository.save(
+                    UsuarioMision(
+                        usuarioId = usuarioId,
+                        misionId = misionTutorial.id!!,
+                        estado = EstadoMision.DISPONIBLE,
+                        faseActual = 0,
+                        progresoFases = "{}"
+                    )
+                )
+
+                logger.info("✅ Misión tutorial preparada para usuario {}", usuarioId)
+            }
+        }
+    }
+
+    /**
+     * Verificar si capturar una foto avanza alguna misión
+     */
+    @Transactional
+    fun verificarProgresoMisionesFotografia(
+        partidaId: Long,
+        objetivo: com.tesis.gamificacion.model.entities.FotografiaObjetivo
+    ) {
+        val usuarioId = obtenerUsuarioDePartida(partidaId)
+
+        // Obtener misiones en progreso del usuario
+        val misionesEnProgreso = usuarioMisionRepository.findByUsuarioIdAndEstado(
+            usuarioId,
+            EstadoMision.EN_PROGRESO
+        )
+
+        misionesEnProgreso.forEach { usuarioMision ->
+            // Obtener fase actual
+            val faseActual = faseMisionRepository.findByMisionIdAndNumeroFase(
+                usuarioMision.misionId,
+                usuarioMision.faseActual
+            )
+
+            // Verificar si es una fase de fotografía
+            if (faseActual?.tipoFase == TipoFase.BUSCAR_ARTEFACTO ||
+                faseActual?.tipoFase == TipoFase.VISITAR_PUNTO) {
+
+                // Si el punto de interés coincide
+                if (faseActual.puntoInteresId == objetivo.puntoInteres.id) {
+                    logger.info("📸 Foto capturada avanza misión {} fase {}",
+                        usuarioMision.misionId, faseActual.numeroFase)
+
+                    // Aquí podrías auto-avanzar la fase si quieres
+                    // O simplemente loguear que el progreso está disponible
+                }
+            }
+        }
+    }
+
+    /**
+     * Helper: Obtener usuarioId desde partidaId
+     * Implementa según tu modelo de datos
+     */
+    private fun obtenerUsuarioDePartida(partidaId: Long): Long {
+        // OPCIÓN 1: Si partidaId == usuarioId (más simple)
+        return partidaId
+
+        // OPCIÓN 2: Si tienes tabla Partida con relación a Usuario
+        // val partida = partidaRepository.findById(partidaId)
+        //     .orElseThrow { IllegalArgumentException("Partida no encontrada") }
+        // return partida.usuarioId
+
+        // OPCIÓN 3: Si ProgresoExploracion tiene usuarioId
+        // val progreso = progresoExploracionRepository.findByPartidaId(partidaId)
+        //     ?: throw IllegalArgumentException("Progreso no encontrado")
+        // return progreso.usuarioId
+    }
+
+// ========== DATA CLASS PARA RESULTADO ==========
+
+    data class CompletarMisionResult(
+        val completada: Boolean,
+        val mensaje: String? = null,
+        val recompensas: List<RecompensaDTO>
+    )
 }

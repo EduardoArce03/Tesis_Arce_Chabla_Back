@@ -33,5 +33,6 @@ enum class TipoMision {
     ENCONTRAR_ARTEFACTOS,  // Encuentra X artefactos
     COMPLETAR_QUIZ,        // Responde quizzes correctamente
     TIEMPO_EXPLORACION,    // Explora por X minutos
-    SECUENCIAL             // Visita puntos en orden específico
+    SECUENCIAL,             // Visita puntos en orden específico,
+    NARRATIVA
 }

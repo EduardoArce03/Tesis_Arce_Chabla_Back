@@ -2,7 +2,7 @@ package com.tesis.gamificacion.dto.response
 
 import com.tesis.gamificacion.model.enums.*
 import java.time.LocalDateTime
-
+import com.tesis.gamificacion.dto.misiones.*
 // Dashboard de Exploración
 data class DashboardExploracionResponse(
     val progreso: ProgresoExploracionDTO,
@@ -68,13 +68,6 @@ data class ObjetivoMisionDTO(
     val tiempoRequerido: Int?
 )
 
-data class ProgresoMisionDTO(
-    val puntosVisitados: List<Long>,
-    val artefactosEncontrados: Int,
-    val quizzesCompletados: Int,
-    val tiempoExplorado: Int,
-    val porcentajeCompletado: Double
-)
 
 data class ArtefactoDTO(
     val id: Long,

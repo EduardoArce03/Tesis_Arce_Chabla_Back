@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository
 interface MisionRepository : JpaRepository<Mision, Long> {
     fun findByActivaTrueOrderByOrden(): List<Mision>
     fun findByNivelMinimoLessThanEqualAndActivaTrue(nivelUsuario: Int): List<Mision>
+    fun findByNivelMinimoAndActivaTrue(nivelMinimo: Int): List<Mision>
 }
 
 @Repository

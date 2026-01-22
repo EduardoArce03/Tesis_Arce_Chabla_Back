@@ -1,529 +1,805 @@
+// src/main/kotlin/com/tesis/gamificacion/service/ExploracionService.kt
 package com.tesis.gamificacion.service
 
-import com.tesis.gamificacion.dto.request.*
-import com.tesis.gamificacion.dto.response.*
 import com.tesis.gamificacion.model.entities.*
 import com.tesis.gamificacion.model.enums.*
+import com.tesis.gamificacion.model.request.*
+import com.tesis.gamificacion.model.responses.*
+import com.tesis.gamificacion.model.responses.ProgresoExploracionResponse
 import com.tesis.gamificacion.repository.*
-import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDateTime
-import kotlin.random.Random
 
 @Service
+@Transactional
 class ExploracionService(
     private val puntoInteresRepository: PuntoInteresRepository,
-    private val progresoRepository: ProgresoExploracionRepository,
-    private val descubrimientoRepository: DescubrimientoRepository,
+    private val capaDescubrimientoRepository: CapaDescubrimientoRepository,
+    private val progresoExploracionRepository: ProgresoExploracionRepository,
+    private val fotografiaObjetivoRepository: FotografiaObjetivoRepository,
+    private val fotografiaCapturadaRepository: FotografiaCapturadaRepository,
     private val artefactoRepository: ArtefactoRepository,
+    private val dialogoHistorialRepository: DialogoHistorialRepository,
+    private val narrativaIAService: NarrativaIAService,
+    private val dialogoIAService: DialogoIAService,
+    private val fotografiaIAService: FotografiaIAService,
+    private val misionService: MisionService,
+    private val puntoDescubrimientoRepository: PuntoDescubrimientoRepository,
     private val usuarioArtefactoRepository: UsuarioArtefactoRepository,
-    private val misionRepository: MisionExploracionRepository,
-    private val usuarioMisionRepository: UsuarioMisionRepository,
-    private val preguntaQuizRepository: PreguntaQuizRepository
 ) {
-    private val logger = LoggerFactory.getLogger(ExploracionService::class.java)
 
-    @Transactional
-    fun obtenerDashboard(usuarioId: Long): DashboardExploracionResponse {
-        logger.info("📊 Obteniendo dashboard de exploración para usuario: {}", usuarioId)
+    // ==================== INICIALIZACIÓN ====================
 
-        val progreso = obtenerOCrearProgreso(usuarioId)
-        val todosPuntos = puntoInteresRepository.findByActivoTrue()
-        val descubrimientos = descubrimientoRepository.findByUsuarioId(usuarioId)
-        val artefactosUsuario = usuarioArtefactoRepository.findByUsuarioId(usuarioId)
-        val misiones = obtenerMisionesActivas(usuarioId)
+    /**
+     * Inicializar exploración para una partida
+     */
+    fun inicializarExploracion(partidaId: Long, usuarioId: Long): ProgresoExploracionResponse {
+        val progresoExistente = progresoExploracionRepository.findByPartidaId(partidaId)
+        if (progresoExistente != null) {
+            return construirProgresoResponse(progresoExistente)
+        }
 
-        val puntosDescubiertos = todosPuntos.filter { punto ->
-            descubrimientos.any { it.puntoId == punto.id }
-        }.map { convertirAPuntoDTO(it, descubrimientos, artefactosUsuario, progreso) }
+        val progreso = ProgresoExploracion(
+            partidaId = partidaId,
+            usuarioId = usuarioId, // ✅ Usar parámetro
+            nivelActual = NivelCapa.SUPERFICIE,
+            puntosDescubiertos = 0,
+            puntosTotales = puntoInteresRepository.count().toInt(),
+            misionesCompletadas = 0,
+            fotografiasCapturadas = 0,
+            dialogosRealizados = 0
+        )
 
-        val puntosDisponibles = todosPuntos.filter { punto ->
-            punto.nivelRequerido <= progreso.nivelArqueologo &&
-                    descubrimientos.none { it.puntoId == punto.id }
-        }.map { convertirAPuntoDTO(it, descubrimientos, artefactosUsuario, progreso) }
+        val progresoGuardado = progresoExploracionRepository.save(progreso)
+        inicializarCapas(progresoGuardado)
+        misionService.generarMisionesIniciales(partidaId)
 
-        val artefactosRecientes = obtenerArtefactosRecientes(usuarioId, 5)
-        val estadisticas = calcularEstadisticas(usuarioId, descubrimientos)
+        return construirProgresoResponse(progresoGuardado)
+    }
 
-        return DashboardExploracionResponse(
-            progreso = convertirAProgresoDTO(progreso, todosPuntos.size),
-            puntosDescubiertos = puntosDescubiertos,
-            puntosDisponibles = puntosDisponibles,
-            misionesActivas = misiones,
-            artefactosRecientes = artefactosRecientes,
-            estadisticas = estadisticas
+    /**
+     * Construir respuesta de progreso completa
+     */
+    private fun construirProgresoResponse(progreso: ProgresoExploracion): ProgresoExploracionResponse {
+        val capas = obtenerCapas(progreso.partidaId)
+
+        return ProgresoExploracionResponse(
+            partidaId = progreso.partidaId,
+            usuarioId = progreso.usuarioId,
+            nivelActual = progreso.nivelActual,
+            puntosDescubiertos = progreso.puntosDescubiertos,
+            puntosTotales = progreso.puntosTotales,
+            porcentajeTotal = if (progreso.puntosTotales > 0) {
+                (progreso.puntosDescubiertos.toDouble() / progreso.puntosTotales) * 100
+            } else 0.0,
+            misionesCompletadas = progreso.misionesCompletadas,
+            fotografiasCapturadas = progreso.fotografiasCapturadas,
+            fotosRaras = progreso.fotosRaras,
+            fotosLegendarias = progreso.fotosLegendarias,
+            dialogosRealizados = progreso.dialogosRealizados,
+            capas = capas,
+            fechaInicio = progreso.fechaInicio,
+            ultimaActividad = progreso.ultimaActividad,
+            puntosTotal = progreso.puntosTotal,
+            nivelArqueologo = progreso.nivelArqueologo,
+            nombreNivel = obtenerNombreNivel(progreso.nivelArqueologo),
+            experienciaTotal = progreso.experienciaTotal,
+            experienciaParaSiguienteNivel = calcularExpRestante(progreso)
         )
     }
 
-    @Transactional
-    fun visitarPunto(request: VisitarPuntoRequest): VisitaPuntoResponse {
-        logger.info("🗿 Usuario {} visitando punto {}", request.usuarioId, request.puntoId)
+    /**
+     * Calcula experiencia restante para siguiente nivel
+     */
+    private fun calcularExpRestante(progreso: ProgresoExploracion): Int {
+        val expParaSiguiente = calcularExpParaNivel(progreso.nivelArqueologo + 1)
+        return maxOf(0, expParaSiguiente - progreso.experienciaTotal)
+    }
 
+    /**
+     * Calcula experiencia necesaria para un nivel
+     */
+    private fun calcularExpParaNivel(nivel: Int): Int {
+        return nivel * 1000 // Cada nivel requiere 1000 XP
+    }
+
+    /**
+     * Obtiene el nombre descriptivo del nivel
+     */
+    private fun obtenerNombreNivel(nivel: Int): String {
+        return when (nivel) {
+            1 -> "Arqueólogo Novato"
+            2 -> "Explorador Aprendiz"
+            3 -> "Investigador Junior"
+            4 -> "Arqueólogo Experimentado"
+            5 -> "Explorador Experto"
+            6 -> "Investigador Senior"
+            7 -> "Maestro Arqueólogo"
+            8 -> "Guardián del Conocimiento"
+            9 -> "Sabio Ancestral"
+            10 -> "Leyenda Viva"
+            else -> if (nivel > 10) "Maestro Supremo" else "Principiante"
+        }
+    }
+
+    private fun inicializarCapas(progreso: ProgresoExploracion) {
+        NivelCapa.entries.forEach { nivel ->
+            val capa = CapaDescubrimiento(
+                progreso = progreso,
+                nivel = nivel,
+                desbloqueada = nivel == NivelCapa.SUPERFICIE,
+                porcentajeDescubrimiento = if (nivel == NivelCapa.SUPERFICIE) 0.0 else 0.0,
+                puntosPorDescubrir = contarPuntosPorNivel(nivel)
+            )
+            capaDescubrimientoRepository.save(capa)
+        }
+    }
+
+    private fun contarPuntosPorNivel(nivel: NivelCapa): Int {
+        return puntoInteresRepository.countByNivelMinimo(nivel.numero)
+    }
+
+    // ==================== DESCUBRIMIENTO DE PUNTOS ====================
+
+    /**
+     * Descubrir un punto de interés
+     */
+    fun descubrirPunto(request: DescubrirPuntoRequest): DescubrimientoPuntoResponse {
+        val progreso = obtenerProgreso(request.partidaId)
         val punto = puntoInteresRepository.findById(request.puntoId)
             .orElseThrow { IllegalArgumentException("Punto no encontrado") }
 
-        val progreso = obtenerOCrearProgreso(request.usuarioId)
+        // Verificar si el punto ya fue descubierto
+        val descubrimiento = punto.descubrimientos.find { it.progreso.id == progreso.id }
 
-        // Verificar nivel requerido
-        if (punto.nivelRequerido > progreso.nivelArqueologo) {
-            throw IllegalArgumentException("Nivel de arqueólogo insuficiente")
+
+
+        if (descubrimiento != null) {
+            // Ya fue descubierto, solo incrementar visitas
+            descubrimiento.visitas++
+            descubrimiento.ultimaVisita = LocalDateTime.now()
+
+            return DescubrimientoPuntoResponse(
+                puntoId = punto.id!!,
+                nombrePunto = punto.nombre,
+                yaDescubierto = true,
+                nivelDescubierto = descubrimiento.nivelDescubrimiento,
+                narrativaGenerada = null,
+                recompensas = emptyList(),
+                nuevaCapaDesbloqueada = null
+            )
         }
 
-        // Verificar si es primera visita
-        val descubrimientoExistente = descubrimientoRepository
-            .findByUsuarioIdAndPuntoId(request.usuarioId, request.puntoId)
+        // Primer descubrimiento
+        val nivelDescubrimiento = determinarNivelDescubrimiento(punto, progreso)
 
-        val esPrimeraVisita = descubrimientoExistente == null
+        val narrativa = generarNarrativaDescubrimiento(punto, nivelDescubrimiento)
 
-        // Crear o actualizar descubrimiento
-        val descubrimiento = if (esPrimeraVisita) {
-            crearNuevoDescubrimiento(request.usuarioId, request.puntoId, request.tiempoSegundos)
-        } else {
-            actualizarDescubrimiento(descubrimientoExistente!!, request.tiempoSegundos)
-        }
-
-        // Buscar artefacto (probabilidad)
-        val artefactoEncontrado = buscarArtefactoAleatorio(request.usuarioId, request.puntoId)
-
-        // Calcular experiencia
-        var expGanada = punto.puntosPorDescubrir
-        if (artefactoEncontrado != null) {
-            expGanada += artefactoEncontrado.rareza * 50
-        }
+        val nuevoDescubrimiento = PuntoDescubrimiento(
+            puntoInteres = punto,
+            progreso = progreso,
+            nivelDescubrimiento = nivelDescubrimiento,
+            visitas = 1,
+            quizCompletado = false,
+            usuarioId = progreso.usuarioId,
+            narrativa = narrativa
+        )
+        punto.descubrimientos.add(nuevoDescubrimiento)
+        puntoInteresRepository.save(punto)
 
         // Actualizar progreso
-        val nivelAnterior = progreso.nivelArqueologo
-        progreso.experienciaTotal += expGanada
-        progreso.ultimaVisita = LocalDateTime.now()
+        progreso.puntosDescubiertos++
+        actualizarPorcentajeCapa(progreso, nivelDescubrimiento)
 
-        // 👇 ARREGLADO: Solo incrementar si es primera visita
-        if (esPrimeraVisita) {
-            progreso.puntosDescubiertos += 1
-        }
+        // Generar narrativa con IA
 
-        // 👇 NUEVO: Incrementar artefactos encontrados si encontró uno
-        if (artefactoEncontrado != null) {
-            progreso.artefactosEncontrados += 1
-        }
+        // Verificar recompensas
+        val recompensas = calcularRecompensasDescubrimiento(punto, nivelDescubrimiento)
 
-        val nuevoNivel = calcularNivel(progreso.experienciaTotal)
-        val nivelSubido = nuevoNivel > nivelAnterior
+        // Verificar desbloqueo de nuevas capas
+        val nuevaCapaDesbloqueada = verificarDesbloqueoCapas(progreso)
 
-        if (nivelSubido) {
-            progreso.nivelArqueologo = nuevoNivel
-            logger.info("🎉 Usuario {} subió al nivel {}", request.usuarioId, nuevoNivel)
-        }
+        progresoExploracionRepository.save(progreso)
 
-        progresoRepository.save(progreso)
-
-        // Actualizar misiones
-        val misionesActualizadas = actualizarMisiones(request.usuarioId, request.puntoId)
-
-        return VisitaPuntoResponse(
-            descubrimiento = convertirADescubrimientoDTO(descubrimiento, punto, esPrimeraVisita),
-            artefactoEncontrado = artefactoEncontrado?.let {
-                convertirAArtefactoDTO(it, true, LocalDateTime.now(), 1)
-            },
-            experienciaGanada = expGanada,
-            nivelSubido = nivelSubido,
-            nuevoNivel = if (nivelSubido) nuevoNivel else null,
-            misionesActualizadas = misionesActualizadas
-        )
-    }
-
-    // 👇 ACTUALIZAR este método también
-    private fun convertirADescubrimientoDTO(
-        descubrimiento: Descubrimiento,
-        punto: PuntoInteres,
-        esPrimeraVisita: Boolean
-    ): DescubrimientoDTO {
-        val nivelAnterior = when {
-            esPrimeraVisita -> NivelDescubrimiento.NO_VISITADO
-            descubrimiento.nivelDescubrimiento == NivelDescubrimiento.PLATA -> NivelDescubrimiento.BRONCE
-            descubrimiento.nivelDescubrimiento == NivelDescubrimiento.ORO -> NivelDescubrimiento.PLATA
-            else -> NivelDescubrimiento.NO_VISITADO
-        }
-
-        return DescubrimientoDTO(
+        return DescubrimientoPuntoResponse(
             puntoId = punto.id!!,
             nombrePunto = punto.nombre,
-            nivelDescubrimiento = descubrimiento.nivelDescubrimiento,
-            nivelAnterior = nivelAnterior,
-            visitas = descubrimiento.visitas,
-            tiempoTotal = descubrimiento.tiempoExplorado,
-            quizCompletado = descubrimiento.quizCompletado
+            yaDescubierto = false,
+            nivelDescubierto = nivelDescubrimiento,
+            narrativaGenerada = narrativa,
+            recompensas = recompensas,
+            nuevaCapaDesbloqueada = nuevaCapaDesbloqueada
         )
     }
 
-    private fun obtenerOCrearProgreso(usuarioId: Long): ProgresoExploracion {
-        return progresoRepository.findByUsuarioId(usuarioId)
-            ?: progresoRepository.save(ProgresoExploracion(usuarioId = usuarioId))
+    private fun determinarNivelDescubrimiento(punto: PuntoInteres, progreso: ProgresoExploracion): NivelCapa {
+        // Determinar en qué nivel se descubre basado en el progreso actual
+        val capasDesbloqueadas = capaDescubrimientoRepository.findByProgresoAndDesbloqueadaTrue(progreso)
+
+        return capasDesbloqueadas
+            .map { it.nivel }
+            .filter { it.numero <= progreso.nivelActual.numero }
+            .maxByOrNull { it.numero } ?: NivelCapa.SUPERFICIE
     }
 
-    private fun crearNuevoDescubrimiento(usuarioId: Long, puntoId: Long, tiempo: Int): Descubrimiento {
-        return descubrimientoRepository.save(
-            Descubrimiento(
-                usuarioId = usuarioId,
-                puntoId = puntoId,
-                nivelDescubrimiento = NivelDescubrimiento.BRONCE,
-                visitas = 1,
-                tiempoExplorado = tiempo
-            )
-        )
+    private fun actualizarPorcentajeCapa(progreso: ProgresoExploracion, nivel: NivelCapa) {
+        val capa = capaDescubrimientoRepository.findByProgresoAndNivel(progreso, nivel)
+            ?: return
+
+        val puntosDescubiertos = contarPuntosDescubiertosEnNivel(progreso, nivel)
+        val puntosTotales = capa.puntosPorDescubrir
+
+        capa.porcentajeDescubrimiento = if (puntosTotales > 0) {
+            (puntosDescubiertos.toDouble() / puntosTotales) * 100
+        } else 0.0
+
+        capaDescubrimientoRepository.save(capa)
     }
 
-    private fun actualizarDescubrimiento(descubrimiento: Descubrimiento, tiempoAdicional: Int): Descubrimiento {
-        val nuevoDescubrimiento = descubrimiento.copy(
-            visitas = descubrimiento.visitas + 1,
-            tiempoExplorado = descubrimiento.tiempoExplorado + tiempoAdicional,
-            fechaUltimaVisita = LocalDateTime.now(),
-            nivelDescubrimiento = when {
-                descubrimiento.visitas >= 3 && descubrimiento.quizCompletado -> NivelDescubrimiento.ORO
-                descubrimiento.visitas >= 2 && descubrimiento.quizCompletado -> NivelDescubrimiento.PLATA
-                else -> descubrimiento.nivelDescubrimiento
-            }
-        )
-        return descubrimientoRepository.save(nuevoDescubrimiento)
-    }
-
-    private fun buscarArtefactoAleatorio(usuarioId: Long, puntoId: Long): Artefacto? {
-        val artefactosDisponibles = artefactoRepository.findByPuntoInteresIdAndActivoTrue(puntoId)
-        val artefactosYaEncontrados = usuarioArtefactoRepository.findByUsuarioId(usuarioId)
-            .map { it.artefactoId }
-
-        val artefactosPorEncontrar = artefactosDisponibles.filter { it.id !in artefactosYaEncontrados }
-
-        if (artefactosPorEncontrar.isEmpty()) {
-            logger.info("📦 Usuario {} ya encontró todos los artefactos del punto {}", usuarioId, puntoId)
-            return null
-        }
-
-        // Buscar basado en probabilidad
-        val artefactoEncontrado = artefactosPorEncontrar.firstOrNull {
-            Random.nextDouble() < it.probabilidadEncuentro
-        }
-
-        if (artefactoEncontrado != null) {
-            // 👇 GUARDAR la relación usuario-artefacto
-            usuarioArtefactoRepository.save(
-                UsuarioArtefacto(
-                    usuarioId = usuarioId,
-                    artefactoId = artefactoEncontrado.id!!
-                )
-            )
-            logger.info("✨ Usuario {} encontró artefacto: {}", usuarioId, artefactoEncontrado.nombre)
-        }
-
-        return artefactoEncontrado
-    }
-
-    private fun calcularNivel(experiencia: Int): Int {
-        return (experiencia / 1000) + 1
-    }
-
-    private fun convertirAPuntoDTO(
-        punto: PuntoInteres,
-        descubrimientos: List<Descubrimiento>,
-        artefactos: List<UsuarioArtefacto>,
-        progreso: ProgresoExploracion
-    ): PuntoInteresDTO {
-        val descubrimiento = descubrimientos.find { it.puntoId == punto.id }
-
-        // 👇 ARREGLADO: Obtener todos los artefactos del punto
-        val todosArtefactosPunto = artefactoRepository.findByPuntoInteresIdAndActivoTrue(punto.id!!)
-        val artefactosDisponibles = todosArtefactosPunto.size
-
-        // 👇 ARREGLADO: Contar los que el usuario encontró de ESTE punto
-        val artefactosEncontrados = todosArtefactosPunto.count { artefactoPunto ->
-            artefactos.any { ua -> ua.artefactoId == artefactoPunto.id }
-        }
-
-        return PuntoInteresDTO(
-            id = punto.id!!,
-            nombre = punto.nombre,
-            nombreKichwa = punto.nombreKichwa,
-            descripcion = punto.descripcion,
-            imagenUrl = punto.imagenUrl,
-            coordenadaX = punto.coordenadaX,
-            coordenadaY = punto.coordenadaY,
-            categoria = punto.categoria,
-            nivelRequerido = punto.nivelRequerido,
-            puntosPorDescubrir = punto.puntosPorDescubrir,
-            desbloqueado = punto.nivelRequerido <= progreso.nivelArqueologo,
-            visitado = descubrimiento != null,
-            nivelDescubrimiento = descubrimiento?.nivelDescubrimiento ?: NivelDescubrimiento.NO_VISITADO,
-            visitas = descubrimiento?.visitas ?: 0,
-            tiempoExplorado = descubrimiento?.tiempoExplorado ?: 0,
-            quizCompletado = descubrimiento?.quizCompletado ?: false,
-            artefactosDisponibles = artefactosDisponibles,
-            artefactosEncontrados = artefactosEncontrados  // 👈 AHORA CORRECTO
-        )
-    }
-
-    private fun convertirAProgresoDTO(progreso: ProgresoExploracion, totalPuntos: Int): ProgresoExploracionDTO {
-        val expParaSiguiente = progreso.nivelArqueologo * 1000
-        val expEnNivelActual = progreso.experienciaTotal % 1000
-        val porcentaje = (expEnNivelActual.toDouble() / 1000) * 100
-
-        return ProgresoExploracionDTO(
-            nivelArqueologo = progreso.nivelArqueologo,
-            experienciaActual = progreso.experienciaTotal,
-            experienciaParaSiguienteNivel = expParaSiguiente,
-            porcentajeProgreso = porcentaje,
-            puntosDescubiertos = progreso.puntosDescubiertos,
-            totalPuntos = totalPuntos,
-            artefactosEncontrados = progreso.artefactosEncontrados,
-            totalArtefactos = artefactoRepository.countByActivoTrue().toInt(),
-            misionesCompletadas = progreso.misionesCompletadas
-        )
-    }
-
-    private fun convertirADescubrimientoDTO(descubrimiento: Descubrimiento, punto: PuntoInteres): DescubrimientoDTO {
-        return DescubrimientoDTO(
-            puntoId = punto.id!!,
-            nombrePunto = punto.nombre,
-            nivelDescubrimiento = descubrimiento.nivelDescubrimiento,
-            nivelAnterior = NivelDescubrimiento.NO_VISITADO,
-            visitas = descubrimiento.visitas,
-            tiempoTotal = descubrimiento.tiempoExplorado,
-            quizCompletado = descubrimiento.quizCompletado
-        )
-    }
-
-    private fun convertirAArtefactoDTO(
-        artefacto: Artefacto,
-        encontrado: Boolean,
-        fechaEncontrado: LocalDateTime?,
-        cantidad: Int
-    ): ArtefactoDTO {
-        val punto = puntoInteresRepository.findById(artefacto.puntoInteresId).get()
-        return ArtefactoDTO(
-            id = artefacto.id!!,
-            nombre = artefacto.nombre,
-            nombreKichwa = artefacto.nombreKichwa,
-            descripcion = artefacto.descripcion,
-            imagenUrl = artefacto.imagenUrl,
-            categoria = artefacto.categoria,
-            rareza = artefacto.rareza,
-            encontrado = encontrado,
-            fechaEncontrado = fechaEncontrado,
-            cantidad = cantidad,
-            puntoInteres = punto.nombre
-        )
-    }
-
-    private fun obtenerMisionesActivas(usuarioId: Long): List<MisionDTO> {
-        // TODO: Implementar lógica de misiones
-        return emptyList()
-    }
-
-    private fun obtenerArtefactosRecientes(usuarioId: Long, limit: Int): List<ArtefactoDTO> {
-        return usuarioArtefactoRepository.findByUsuarioId(usuarioId)
-            .sortedByDescending { it.fechaEncontrado }
-            .take(limit)
-            .mapNotNull { ua ->
-                artefactoRepository.findById(ua.artefactoId).orElse(null)?.let {
-                    convertirAArtefactoDTO(it, true, ua.fechaEncontrado, ua.cantidad)
+    private fun contarPuntosDescubiertosEnNivel(progreso: ProgresoExploracion, nivel: NivelCapa): Int {
+        return puntoInteresRepository.findAll()
+            .count { punto ->
+                punto.descubrimientos.any {
+                    it.progreso.id == progreso.id && it.nivelDescubrimiento == nivel
                 }
             }
     }
 
-    private fun calcularEstadisticas(usuarioId: Long, descubrimientos: List<Descubrimiento>): EstadisticasExploracionDTO {
-        // TODO: Implementar cálculo completo
-        return EstadisticasExploracionDTO(
-            tiempoTotalExploracion = descubrimientos.sumOf { it.tiempoExplorado } / 60,
-            visitasTotales = descubrimientos.sumOf { it.visitas },
-            quizzesRespondidos = 0,
-            quizzesCorrectos = 0,
-            tasaAcierto = 0.0,
-            artefactosPorCategoria = emptyMap(),
-            puntosFavorito = null
-        )
-    }
+    private fun generarNarrativaDescubrimiento(punto: PuntoInteres, nivel: NivelCapa): String {
+        val conceptoClave = "${punto.nombre} - ${nivel.nombre} - ${punto.categoria}"
 
-    private fun actualizarMisiones(usuarioId: Long, puntoId: Long): List<MisionDTO> {
-        // TODO: Implementar actualización de misiones
-        return emptyList()
-    }
+        // Intentar generar con IA
+        val narrativaIA = punto.imagenUrl?.let { imagenUrl ->
+            narrativaIAService.generarNarrativaDescubrimiento(
 
-    @Transactional(readOnly = true)
-    fun obtenerDetallePunto(puntoId: Long, usuarioId: Long): DetallePuntoResponse {
-        logger.info("📖 Obteniendo detalle del punto: {}", puntoId)
-
-        val punto = puntoInteresRepository.findById(puntoId)
-            .orElseThrow { IllegalArgumentException("Punto no encontrado") }
-
-        val descubrimientos = descubrimientoRepository.findByUsuarioId(usuarioId)
-        val artefactosUsuario = usuarioArtefactoRepository.findByUsuarioId(usuarioId)
-        val progreso = obtenerOCrearProgreso(usuarioId)
-
-        val puntoDTO = convertirAPuntoDTO(punto, descubrimientos, artefactosUsuario, progreso)
-
-        val descubrimiento = descubrimientos.find { it.puntoId == puntoId }
-        val nivel = descubrimiento?.nivelDescubrimiento ?: NivelDescubrimiento.NO_VISITADO
-
-        val narrativa = NarrativaDTO(
-            texto = generarNarrativa(punto, nivel),
-            nivel = nivel,
-            generadaPorIA = false
-        )
-
-        val preguntas = preguntaQuizRepository.findByPuntoInteresIdAndActivaTrue(puntoId)
-            .take(3)
-            .map { convertirAPreguntaDTO(it) }
-
-        val artefactosDisponibles = artefactoRepository.findByPuntoInteresIdAndActivoTrue(puntoId)
-            .map { artefacto ->
-                val encontrado = artefactosUsuario.any { it.artefactoId == artefacto.id }
-                val ua = artefactosUsuario.find { it.artefactoId == artefacto.id }
-                convertirAArtefactoDTO(artefacto, encontrado, ua?.fechaEncontrado, ua?.cantidad ?: 0)
-            }
-
-        return DetallePuntoResponse(
-            punto = puntoDTO,
-            narrativa = narrativa,
-            quiz = if (preguntas.isNotEmpty()) preguntas else null,
-            artefactosDisponibles = artefactosDisponibles,
-            historiaCompleta = punto.historiaDetallada
-        )
-    }
-
-    @Transactional
-    fun responderQuiz(request: ResponderQuizRequest): ResultadoQuizResponse {
-        logger.info("📝 Respondiendo quiz - Punto: {}, Pregunta: {}", request.puntoId, request.preguntaId)
-
-        val pregunta = preguntaQuizRepository.findById(request.preguntaId)
-            .orElseThrow { IllegalArgumentException("Pregunta no encontrada") }
-
-        val correcto = pregunta.respuestaCorrecta == request.respuesta
-        var expGanada = 0
-
-        if (correcto) {
-            expGanada = pregunta.dificultad * 50
-
-            // Actualizar descubrimiento
-            val descubrimiento = descubrimientoRepository
-                .findByUsuarioIdAndPuntoId(request.usuarioId, request.puntoId)
-
-            if (descubrimiento != null && !descubrimiento.quizCompletado) {
-                val actualizado = descubrimiento.copy(
-                    quizCompletado = true,
-                    nivelDescubrimiento = when (descubrimiento.nivelDescubrimiento) {
-                        NivelDescubrimiento.BRONCE -> NivelDescubrimiento.PLATA
-                        NivelDescubrimiento.PLATA -> NivelDescubrimiento.ORO
-                        else -> descubrimiento.nivelDescubrimiento
-                    }
-                )
-                descubrimientoRepository.save(actualizado)
-            }
-
-            // Actualizar progreso
-            val progreso = obtenerOCrearProgreso(request.usuarioId)
-            progreso.experienciaTotal += expGanada
-            progresoRepository.save(progreso)
-        }
-
-        return ResultadoQuizResponse(
-            correcto = correcto,
-            explicacion = pregunta.explicacion,
-            experienciaGanada = expGanada,
-            puntoDesbloqueado = correcto
-        )
-    }
-
-    @Transactional
-    fun buscarArtefactoManual(request: BuscarArtefactoRequest): ResultadoBusquedaResponse {
-        logger.info("🔍 Búsqueda manual de artefacto - Usuario: {}, Punto: {}",
-            request.usuarioId, request.puntoId)
-
-        val artefacto = buscarArtefactoAleatorio(request.usuarioId, request.puntoId)
-
-        if (artefacto != null) {
-            val expGanada = artefacto.rareza * 50
-            val progreso = obtenerOCrearProgreso(request.usuarioId)
-
-            // 👇 ARREGLADO: Actualizar experiencia Y contador de artefactos
-            progreso.experienciaTotal += expGanada
-            progreso.artefactosEncontrados += 1
-            progreso.ultimaVisita = LocalDateTime.now()
-
-            progresoRepository.save(progreso)
-
-            return ResultadoBusquedaResponse(
-                encontrado = true,
-                artefacto = convertirAArtefactoDTO(artefacto, true, LocalDateTime.now(), 1),
-                mensaje = "¡Encontraste ${artefacto.nombre}!",
-                experienciaGanada = expGanada
+                nombrePunto = punto.nombre,
+                categoria = punto.categoria.name,
+                nivel = nivel.name,
+                descripcionBase = punto.descripcion
             )
         }
-
-        return ResultadoBusquedaResponse(
-            encontrado = false,
-            artefacto = null,
-            mensaje = "No encontraste ningún artefacto esta vez. ¡Sigue explorando!",
-            experienciaGanada = 0
-        )
+        return narrativaIA ?: generarNarrativaFallback(punto, nivel)
     }
 
-    @Transactional(readOnly = true)
-    fun obtenerColeccionArtefactos(usuarioId: Long): List<ArtefactoDTO> {
-        logger.info("📦 Obteniendo colección de artefactos - Usuario: {}", usuarioId)
-
-        val todosArtefactos = artefactoRepository.findByActivoTrue()
-        val artefactosUsuario = usuarioArtefactoRepository.findByUsuarioId(usuarioId)
-
-        return todosArtefactos.map { artefacto ->
-            val ua = artefactosUsuario.find { it.artefactoId == artefacto.id }
-            val encontrado = ua != null
-            convertirAArtefactoDTO(
-                artefacto,
-                encontrado,
-                ua?.fechaEncontrado,
-                ua?.cantidad ?: 0
-            )
-        }
-    }
-
-    @Transactional(readOnly = true)
-    fun obtenerMisionesDisponibles(usuarioId: Long): List<MisionDTO> {
-        // TODO: Implementar cuando tengamos misiones creadas
-        return emptyList()
-    }
-
-    @Transactional
-    fun aceptarMision(usuarioId: Long, misionId: Long): MisionDTO {
-        // TODO: Implementar
-        throw NotImplementedError("Misiones próximamente")
-    }
-
-    @Transactional(readOnly = true)
-    fun obtenerEstadisticasDetalladas(usuarioId: Long): EstadisticasExploracionDTO {
-        val descubrimientos = descubrimientoRepository.findByUsuarioId(usuarioId)
-        return calcularEstadisticas(usuarioId, descubrimientos)
-    }
-
-    // Métodos helper
-    private fun generarNarrativa(punto: PuntoInteres, nivel: NivelDescubrimiento): String {
+    private fun generarNarrativaFallback(punto: PuntoInteres, nivel: NivelCapa): String {
         return when (nivel) {
-            NivelDescubrimiento.NO_VISITADO -> punto.descripcion
-            NivelDescubrimiento.BRONCE -> "${punto.descripcion}\n\nPrimera exploración completada."
-            NivelDescubrimiento.PLATA -> "${punto.historiaDetallada}\n\nDescubrimiento avanzado."
-            NivelDescubrimiento.ORO -> "${punto.historiaDetallada}\n\n¡Exploración maestra!"
+            NivelCapa.SUPERFICIE -> "Has descubierto ${punto.nombre}. Este lugar muestra las ruinas tal como las vemos hoy."
+            NivelCapa.INCA -> "En tiempos del Imperio Inca, ${punto.nombre} era ${punto.descripcion}."
+            NivelCapa.CANARI -> "Antes de los Incas, los Cañaris construyeron aquí ${punto.nombre}."
+            NivelCapa.ANCESTRAL -> "Las leyendas ancestrales hablan de ${punto.nombre} como un lugar sagrado."
         }
     }
 
-    private fun convertirAPreguntaDTO(pregunta: PreguntaQuiz): PreguntaQuizDTO {
-        return PreguntaQuizDTO(
-            id = pregunta.id!!,
-            pregunta = pregunta.pregunta,
-            opciones = listOf(
-                OpcionQuizDTO("A", pregunta.opcionA),
-                OpcionQuizDTO("B", pregunta.opcionB),
-                OpcionQuizDTO("C", pregunta.opcionC),
-                OpcionQuizDTO("D", pregunta.opcionD)
+    private fun calcularRecompensasDescubrimiento(punto: PuntoInteres, nivel: NivelCapa): List<RecompensaDTO> {
+        val recompensas = mutableListOf<RecompensaDTO>()
+
+        // Puntos base por descubrimiento
+        val puntosBase = when (nivel) {
+            NivelCapa.SUPERFICIE -> 10
+            NivelCapa.INCA -> 25
+            NivelCapa.CANARI -> 50
+            NivelCapa.ANCESTRAL -> 100
+        }
+
+        recompensas.add(RecompensaDTO(
+            tipo = "PUNTOS",
+            cantidad = puntosBase,
+            descripcion = "Puntos por descubrir ${punto.nombre}"
+        ))
+
+        // Bonus por categoría especial
+        if (punto.categoria == CategoriaPunto.TEMPLO || punto.categoria == CategoriaPunto.CEREMONIAL) {
+            recompensas.add(RecompensaDTO(
+                tipo = "BONUS_CULTURAL",
+                cantidad = 20,
+                descripcion = "Bonus por descubrir sitio ceremonial"
+            ))
+        }
+
+        return recompensas
+    }
+
+    private fun verificarDesbloqueoCapas(progreso: ProgresoExploracion): NivelCapaDTO? {
+        val capas = capaDescubrimientoRepository.findByProgreso(progreso)
+
+        // Verificar cada capa bloqueada
+        for (capa in capas.filter { !it.desbloqueada }) {
+            if (cumpleRequisitosDesbloqueo(capa, progreso)) {
+                capa.desbloqueada = true
+                capa.fechaDesbloqueo = LocalDateTime.now()
+                capaDescubrimientoRepository.save(capa)
+
+                progreso.nivelActual = capa.nivel
+
+                return NivelCapaDTO(
+                    nivel = capa.nivel,
+                    nombre = capa.nivel.nombre,
+                    descripcion = capa.nivel.descripcion,
+                    desbloqueada = true,
+                    porcentajeDescubrimiento = capa.porcentajeDescubrimiento
+                )
+            }
+        }
+
+        return null
+    }
+
+    private fun cumpleRequisitosDesbloqueo(capa: CapaDescubrimiento, progreso: ProgresoExploracion): Boolean {
+        return when (capa.nivel) {
+            NivelCapa.SUPERFICIE -> true // Siempre desbloqueada
+            NivelCapa.INCA -> {
+                // Desbloquear tras descubrir 50% de superficie
+                val capaSuperficie = capaDescubrimientoRepository.findByProgresoAndNivel(progreso, NivelCapa.SUPERFICIE)
+                capaSuperficie?.porcentajeDescubrimiento ?: 0.0 >= 50.0
+            }
+            NivelCapa.CANARI -> {
+                // Desbloquear tras completar 3 misiones y 70% de capa Inca
+                val capaInca = capaDescubrimientoRepository.findByProgresoAndNivel(progreso, NivelCapa.INCA)
+                progreso.misionesCompletadas >= 3 && (capaInca?.porcentajeDescubrimiento ?: 0.0) >= 70.0
+            }
+            NivelCapa.ANCESTRAL -> {
+                // Desbloquear tras completar todas las capas anteriores al 90%
+                val todasLasCapasAnteriores = capaDescubrimientoRepository.findByProgreso(progreso)
+                    .filter { it.nivel.numero < NivelCapa.ANCESTRAL.numero }
+
+                todasLasCapasAnteriores.all { it.porcentajeDescubrimiento >= 90.0 }
+            }
+        }
+    }
+
+    // ==================== FOTOGRAFÍA ====================
+
+    /**
+     * Capturar fotografía de objetivo
+     */
+    fun capturarFotografia(request: CapturarFotografiaRequest): CapturarFotografiaResponse {
+        val progreso = obtenerProgreso(request.partidaId)
+        val objetivo = fotografiaObjetivoRepository.findById(request.objetivoId)
+            .orElseThrow { IllegalArgumentException("Objetivo fotográfico no encontrado") }
+
+        // Verificar si ya fue capturada
+        val yaCapturada = fotografiaCapturadaRepository.existsByProgresoAndObjetivo(progreso, objetivo)
+
+        if (yaCapturada) {
+            return CapturarFotografiaResponse(
+                exito = false,
+                mensaje = "Ya has capturado esta fotografía anteriormente",
+                fotografiaId = null,
+                analisisIA = null,
+                recompensas = emptyList()
+            )
+        }
+
+        // Analizar foto con IA
+        val analisis = fotografiaIAService.analizarFotografia(
+            objetivo = objetivo,
+            imagenBase64 = request.imagenBase64,
+            descripcionUsuario = request.descripcionUsuario
+        )
+
+        if (!analisis.esValida || !analisis.cumpleCriterios) {
+            return CapturarFotografiaResponse(
+                exito = false,
+                mensaje = "La fotografía no cumple con los criterios del objetivo",
+                fotografiaId = null,
+                analisisIA = FotoAnalisisDTO(
+                    esValida = analisis.esValida,
+                    descripcionIA = analisis.descripcionIA,
+                    cumpleCriterios = analisis.cumpleCriterios,
+                    confianza = analisis.confianza
+                ),
+                recompensas = emptyList()
+            )
+        }
+
+        // Guardar fotografía capturada
+        val fotografiaCapturada = FotografiaCapturada(
+            objetivo = objetivo,
+            progreso = progreso,
+            imagenUrl = request.imagenBase64, // En producción, guardar en storage
+            descripcionUsuario = request.descripcionUsuario,
+            descripcionIA = analisis.descripcionIA,
+            rarezaObtenida = analisis.rarezaDetectada,
+            puntuacionIA = analisis.confianza
+        )
+
+        val fotografiaGuardada = fotografiaCapturadaRepository.save(fotografiaCapturada)
+
+        // Actualizar progreso
+        progreso.fotografiasCapturadas++
+        progresoExploracionRepository.save(progreso)
+
+        // Calcular recompensas
+        val recompensas = calcularRecompensasFotografia(objetivo, analisis.rarezaDetectada)
+
+        // Verificar si completa alguna misión
+        misionService.verificarProgresoMisionesFotografia(request.partidaId, objetivo)
+
+        return CapturarFotografiaResponse(
+            exito = true,
+            mensaje = "¡Fotografía capturada exitosamente!",
+            fotografiaId = fotografiaGuardada.id,
+            analisisIA = FotoAnalisisDTO(
+                esValida = true,
+                descripcionIA = analisis.descripcionIA,
+                cumpleCriterios = true,
+                confianza = analisis.confianza
             ),
-            dificultad = pregunta.dificultad
+            recompensas = recompensas
         )
     }
+
+    private fun calcularRecompensasFotografia(objetivo: FotografiaObjetivo, rareza: RarezaFoto): List<RecompensaDTO> {
+        val recompensas = mutableListOf<RecompensaDTO>()
+
+        val puntosBase = when (rareza) {
+            RarezaFoto.COMUN -> 15
+            RarezaFoto.POCO_COMUN -> 30
+            RarezaFoto.RARA -> 60
+            RarezaFoto.EPICA -> 120
+            RarezaFoto.LEGENDARIA -> 250
+            else -> {
+                throw IllegalArgumentException("error")
+            }
+        }
+
+        recompensas.add(RecompensaDTO(
+            tipo = "PUNTOS",
+            cantidad = puntosBase,
+            descripcion = "Puntos por fotografía ${rareza.name}"
+        ))
+
+        // Bonus si es la primera foto de esta rareza
+        if (rareza == RarezaFoto.EPICA || rareza == RarezaFoto.LEGENDARIA) {
+            recompensas.add(RecompensaDTO(
+                tipo = "LOGRO",
+                cantidad = 1,
+                descripcion = "¡Primera fotografía ${rareza.name}!"
+            ))
+        }
+
+        return recompensas
+    }
+
+    /**
+     * Obtener objetivos fotográficos disponibles
+     */
+    fun obtenerObjetivosFotograficos(partidaId: Long, puntoId: Long?): List<FotografiaObjetivoDTO> {
+        val progreso = obtenerProgreso(partidaId)
+
+        val objetivos = if (puntoId != null) {
+            fotografiaObjetivoRepository.findByPuntoInteresId(puntoId)
+        } else {
+            fotografiaObjetivoRepository.findByNivelRequeridoLessThanEqual(progreso.nivelActual)
+        }
+
+        return objetivos.map { objetivo ->
+            val yaCapturada = fotografiaCapturadaRepository.existsByProgresoAndObjetivo(progreso, objetivo)
+
+            FotografiaObjetivoDTO(
+                id = objetivo.id!!,
+                puntoInteresId = objetivo.puntoInteres.id!!,
+                nombrePunto = objetivo.puntoInteres.nombre,
+                descripcion = objetivo.descripcion,
+                rareza = objetivo.rareza,
+                puntosRecompensa = calcularPuntosObjetivo(objetivo.rareza),
+                yaCapturada = yaCapturada
+            )
+        }
+    }
+
+    private fun calcularPuntosObjetivo(rareza: RarezaFoto): Int {
+        return when (rareza) {
+            RarezaFoto.COMUN -> 15
+            RarezaFoto.POCO_COMUN -> 30
+            RarezaFoto.RARA -> 60
+            RarezaFoto.EPICA -> 120
+            RarezaFoto.LEGENDARIA -> 250
+            else -> {
+                throw IllegalArgumentException("error")
+            }
+        }
+    }
+
+    // ==================== DIÁLOGOS CON ESPÍRITUS ====================
+
+    /**
+     * Dialogar con espíritu ancestral
+     */
+    fun dialogarConEspiritu(request: DialogarEspirituRequest): DialogoEspirituResponse {
+        val progreso = obtenerProgreso(request.partidaId)
+        val capa = capaDescubrimientoRepository.findByProgresoAndNivel(progreso, request.nivelCapa)
+            ?: throw IllegalArgumentException("Capa no encontrada")
+
+        if (!capa.desbloqueada) {
+            return DialogoEspirituResponse(
+                exito = false,
+                mensaje = "Esta capa temporal aún no está desbloqueada",
+                respuestaEspiritu = null,
+                conocimientoDesbloqueado = null
+            )
+        }
+
+        // Obtener historial de diálogos previos para contexto
+        val historialPrevio = dialogoHistorialRepository
+            .findByProgresoAndCapaOrderByFechaDesc(progreso, capa)
+            .take(5)
+
+        // ✅ Obtener nombre del punto si se proporciona
+        val puntoNombre = request.puntoInteresId?.let { puntoId ->
+            puntoInteresRepository.findById(puntoId)
+                .map { it.nombre }
+                .orElse(null)
+        }
+
+        // ✅ Generar respuesta con IA usando el service actualizado
+        val respuestaIA = dialogoIAService.generarRespuestaEspiritu(
+            capa = capa,
+            pregunta = request.pregunta,
+            historialPrevio = historialPrevio,
+            puntoInteresNombre = puntoNombre
+        )
+
+        // Guardar diálogo en historial
+        val dialogo = DialogoHistorial(
+            progreso = progreso,
+            capa = capa,
+            preguntaUsuario = request.pregunta,
+            respuestaEspiritu = respuestaIA,
+            puntoInteresRelacionado = request.puntoInteresId?.let {
+                puntoInteresRepository.findById(it).orElse(null)
+            }
+        )
+        dialogoHistorialRepository.save(dialogo)
+
+        // Actualizar contador
+        progreso.dialogosRealizados++
+        progresoExploracionRepository.save(progreso)
+
+        // Verificar si desbloquea conocimiento especial
+        val conocimientoDesbloqueado = verificarDesbloqueoConocimiento(progreso, capa)
+
+        return DialogoEspirituResponse(
+            exito = true,
+            mensaje = "El espíritu ancestral ha respondido",
+            respuestaEspiritu = respuestaIA,
+            conocimientoDesbloqueado = conocimientoDesbloqueado
+        )
+    }
+
+    private fun verificarDesbloqueoConocimiento(
+        progreso: ProgresoExploracion,
+        capa: CapaDescubrimiento
+    ): String? {
+        val dialogosEnCapa = dialogoHistorialRepository.countByProgresoAndCapa(progreso, capa)
+
+        return when {
+            dialogosEnCapa == 5L -> "Has desbloqueado: Historia básica de ${capa.nivel.nombre}"
+            dialogosEnCapa == 15L -> "Has desbloqueado: Secretos de ${capa.nivel.nombre}"
+            dialogosEnCapa == 30L -> "Has desbloqueado: Sabiduría ancestral completa"
+            else -> null
+        }
+    }
+
+    // ==================== MISIONES ====================
+
+    /**
+     * Obtener misiones disponibles
+     */
+    fun obtenerMisionesDisponibles(partidaId: Long): List<MisionDTO> {
+        val progreso = obtenerProgreso(partidaId)
+        return misionService.obtenerMisionesDisponibles(partidaId)
+    }
+
+    /**
+     * Completar misión
+     */
+    fun completarMision(request: CompletarMisionRequest): CompletarMisionResponse {
+        val progreso = obtenerProgreso(request.partidaId)
+        val resultado = misionService.completarMision(request.partidaId, request.misionId)
+
+        if (resultado.completada) {
+            progreso.misionesCompletadas++
+            progresoExploracionRepository.save(progreso)
+
+            // Verificar si desbloquea nueva capa
+            val nuevaCapa = verificarDesbloqueoCapas(progreso)
+
+            return CompletarMisionResponse(
+                exito = true,
+                mensaje = "¡Misión completada!",
+                recompensas = resultado.recompensas,
+                nuevaCapaDesbloqueada = nuevaCapa
+            )
+        }
+
+        return CompletarMisionResponse(
+            exito = false,
+            mensaje = resultado.mensaje ?: "No se pudo completar la misión",
+            recompensas = emptyList(),
+            nuevaCapaDesbloqueada = null
+        )
+    }
+
+    // ==================== CONSULTAS ====================
+
+    /**
+     * Obtener progreso completo
+     */
+    fun obtenerProgresoCompleto(partidaId: Long): ProgresoExploracionResponse {
+        val progreso = obtenerProgreso(partidaId)
+        return construirProgresoResponse(progreso)
+    }
+
+    /**
+     * Obtener puntos de interés disponibles
+     */
+    /**
+     * Obtener puntos de interés disponibles con su estado de descubrimiento
+     */
+    fun obtenerPuntosDisponibles(partidaId: Long): List<PuntoInteresDTO> {
+        val progreso = obtenerProgreso(partidaId)
+        val puntos = puntoInteresRepository.findByActivoTrue()
+
+        // Obtener todos los descubrimientos del usuario de una vez
+        val descubrimientos = puntoDescubrimientoRepository.findByProgreso(progreso)
+
+        // Obtener artefactos por punto
+        val artefactosPorPunto = obtenerArtefactosPorPunto(progreso)
+
+        return puntos.map { punto ->
+            val descubrimiento = descubrimientos.find { it.puntoInteres.id == punto.id }
+
+            // Verificar si está desbloqueado (por nivel o por orden)
+            val desbloqueado = verificarPuntoDesbloqueado(
+                punto,
+                progreso.nivelArqueologo,
+                descubrimientos
+            )
+
+            PuntoInteresDTO(
+                id = punto.id!!,
+                nombre = punto.nombre,
+                nombreKichwa = punto.nombreKichwa,
+                descripcion = punto.descripcion,
+                imagenUrl = punto.imagenUrl,
+                coordenadaX = punto.latitud,  // Usar como X
+                coordenadaY = punto.longitud, // Usar como Y
+                categoria = punto.categoria,
+                nivelRequerido = punto.nivelMinimo,
+                puntosPorDescubrir = 100, // Puntos base por descubrir
+                desbloqueado = desbloqueado,
+                visitado = descubrimiento != null,
+                nivelDescubrimiento = descubrimiento?.nivelDescubrimiento, // ✅ Ya es NivelCapa?
+                visitas = descubrimiento?.visitas ?: 0,
+                tiempoExplorado = descubrimiento?.tiempoExplorado ?: 0,
+                quizCompletado = descubrimiento?.quizCompletado ?: false,
+                artefactosDisponibles = artefactosPorPunto[punto.id]?.first ?: 0,
+                artefactosEncontrados = artefactosPorPunto[punto.id]?.second ?: 0
+            )
+        }
+    }
+
+    /**
+     * Obtiene cantidad de artefactos por punto
+     * Retorna Map<PuntoId, Pair<Disponibles, Encontrados>>
+     */
+    private fun obtenerArtefactosPorPunto(progreso: ProgresoExploracion): Map<Long, Pair<Int, Int>> {
+        val todosArtefactos = artefactoRepository.findByActivoTrue()
+        val artefactosUsuario = usuarioArtefactoRepository.findByProgreso(progreso)
+
+        return todosArtefactos.groupBy { it.puntoInteres.id!! }
+            .mapValues { (puntoId, artefactos) ->
+                val disponibles = artefactos.size
+                val encontrados = artefactosUsuario.count {
+                    artefactos.any { artefacto -> artefacto.id == it.artefacto.id }
+                }
+                Pair(disponibles, encontrados)
+            }
+    }
+
+    /**
+     * Verifica si un punto está desbloqueado
+     */
+    private fun verificarPuntoDesbloqueado(
+        punto: PuntoInteres,
+        nivelUsuario: Int,
+        descubrimientos: List<PuntoDescubrimiento>
+    ): Boolean {
+        // Verificar nivel mínimo
+        if (nivelUsuario < punto.nivelMinimo) {
+            return false
+        }
+
+        // Si es orden 1, siempre está desbloqueado
+        if (punto.ordenDesbloqueo <= 1) {
+            return true
+        }
+
+        // Verificar que haya descubierto puntos anteriores
+        val puntosAnteriores = puntoInteresRepository.findByActivoTrue()
+            .filter { it.ordenDesbloqueo < punto.ordenDesbloqueo }
+
+        val todosAnterioresDescubiertos = puntosAnteriores.all { puntoAnterior ->
+            descubrimientos.any { it.puntoInteres.id == puntoAnterior.id }
+        }
+
+        return todosAnterioresDescubiertos
+    }
+
+    /**
+     * Obtener capas de descubrimiento
+     */
+    fun obtenerCapas(partidaId: Long): List<NivelCapaDTO> {
+        val progreso = obtenerProgreso(partidaId)
+        val capas = capaDescubrimientoRepository.findByProgreso(progreso)
+
+        return capas.sortedBy { it.nivel.numero }.map { capa ->
+            NivelCapaDTO(
+                nivel = capa.nivel,
+                nombre = capa.nivel.nombre,
+                descripcion = capa.nivel.descripcion,
+                desbloqueada = capa.desbloqueada,
+                porcentajeDescubrimiento = capa.porcentajeDescubrimiento,
+                fechaDesbloqueo = capa.fechaDesbloqueo,
+                puntosDescubiertos = contarPuntosDescubiertosEnNivel(progreso, capa.nivel),
+                puntosTotales = capa.puntosPorDescubrir
+            )
+        }
+    }
+
+    /**
+     * Obtener historial de diálogos
+     */
+    fun obtenerHistorialDialogos(partidaId: Long, nivelCapa: NivelCapa?): List<DialogoHistorialDTO> {
+        val progreso = obtenerProgreso(partidaId)
+
+        val dialogos = if (nivelCapa != null) {
+            val capa = capaDescubrimientoRepository.findByProgresoAndNivel(progreso, nivelCapa)
+            capa?.let { dialogoHistorialRepository.findByProgresoAndCapaOrderByFechaDesc(progreso, it) } ?: emptyList()
+        } else {
+            dialogoHistorialRepository.findByProgresoOrderByFechaDesc(progreso)
+        }
+
+        return dialogos.map { dialogo ->
+            DialogoHistorialDTO(
+                id = dialogo.id!!,
+                pregunta = dialogo.preguntaUsuario,
+                respuesta = dialogo.respuestaEspiritu,
+                nivelCapa = dialogo.capa.nivel,
+                fecha = dialogo.fecha,
+                puntoInteresNombre = dialogo.puntoInteresRelacionado?.nombre
+            )
+        }
+    }
+
+    /**
+     * Obtener galería de fotografías
+     */
+    fun obtenerGaleriaFotografias(partidaId: Long): List<FotografiaCapturadaDTO> {
+        val progreso = obtenerProgreso(partidaId)
+        val fotografias = fotografiaCapturadaRepository.findByProgresoOrderByFechaDesc(progreso)
+
+        return fotografias.map { foto ->
+            FotografiaCapturadaDTO(
+                id = foto.id!!,
+                objetivoId = foto.objetivo.id!!,
+                descripcionObjetivo = foto.objetivo.descripcion,
+                puntoInteresNombre = foto.objetivo.puntoInteres.nombre,
+                imagenUrl = foto.imagenUrl,
+                descripcionUsuario = foto.descripcionUsuario,
+                descripcionIA = foto.descripcionIA,
+                rareza = foto.rarezaObtenida,
+                puntuacionIA = foto.puntuacionIA,
+                fecha = foto.fecha
+            )
+        }
+    }
+    private fun obtenerProgreso(partidaId: Long): ProgresoExploracion {
+        return progresoExploracionRepository.findByPartidaId(partidaId)
+            ?: throw IllegalArgumentException("No existe progreso de exploración para la partida $partidaId. Debes inicializar la exploración primero.")
+    }
+
+    // ==================== UTILIDADES ====================
 }

@@ -12,16 +12,17 @@ import org.springframework.util.LinkedMultiValueMap
 import org.springframework.util.MultiValueMap
 import org.springframework.web.client.RestTemplate
 import com.fasterxml.jackson.databind.ObjectMapper
+import org.springframework.beans.factory.annotation.Value
 
 @Service
 class ModeloService(
     private val restTemplate: RestTemplate,
-    private val objectMapper: ObjectMapper
+    private val objectMapper: ObjectMapper,
+
+    @Value("\${ia.service.url}")
+    private val BASE_URL: String
 ) {
 
-    companion object {
-        private const val BASE_URL = "https://nonpacific-uninitialed-jarrett.ngrok-free.dev"
-    }
 
     // ==================== MÉTODO HELPER CRÍTICO ====================
 

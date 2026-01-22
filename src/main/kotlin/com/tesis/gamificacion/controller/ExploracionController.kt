@@ -1,203 +1,150 @@
+// src/main/kotlin/com/tesis/gamificacion/controller/ExploracionController.kt
 package com.tesis.gamificacion.controller
 
-import com.tesis.gamificacion.dto.request.*
-import com.tesis.gamificacion.dto.response.*
+import com.tesis.gamificacion.model.enums.NivelCapa
+import com.tesis.gamificacion.model.request.*
+import com.tesis.gamificacion.model.responses.*
 import com.tesis.gamificacion.service.ExploracionService
+import com.tesis.gamificacion.service.ExploracionCapasService
 import jakarta.validation.Valid
-import org.slf4j.LoggerFactory
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 
 @RestController
 @RequestMapping("/api/exploracion")
+@CrossOrigin(origins = ["http://localhost:4200"])
 class ExploracionController(
-    private val exploracionService: ExploracionService
+    private val exploracionService: ExploracionService,
+    private val exploracionCapasService: ExploracionCapasService
 ) {
-    private val logger = LoggerFactory.getLogger(ExploracionController::class.java)
 
-    /**
-     * GET /api/exploracion/dashboard/{usuarioId}
-     * Obtener dashboard completo de exploración
-     */
-    @GetMapping("/dashboard/{usuarioId}")
-    fun obtenerDashboard(
-        @PathVariable usuarioId: Long
-    ): ResponseEntity<DashboardExploracionResponse> {
-        logger.info("🌐 GET /exploracion/dashboard/{}", usuarioId)
+    // ==================== INICIALIZACIÓN ====================
 
-        return try {
-            val dashboard = exploracionService.obtenerDashboard(usuarioId)
-            logger.info("✅ Dashboard de exploración obtenido exitosamente")
-            ResponseEntity.ok(dashboard)
-        } catch (e: Exception) {
-            logger.error("❌ Error obteniendo dashboard: {}", e.message, e)
-            throw e
-        }
+    @PostMapping("/inicializar")
+    fun inicializarExploracion(
+        @RequestParam partidaId: Long,
+        @RequestParam usuarioId: Long
+    ): ResponseEntity<ProgresoExploracionResponse> {
+        val progreso = exploracionService.inicializarExploracion(partidaId, usuarioId)
+        return ResponseEntity.ok(progreso)
     }
 
-    /**
-     * POST /api/exploracion/visitar
-     * Visitar un punto de interés
-     */
-    @PostMapping("/visitar")
-    fun visitarPunto(
-        @Valid @RequestBody request: VisitarPuntoRequest
-    ): ResponseEntity<VisitaPuntoResponse> {
-        logger.info("🌐 POST /exploracion/visitar - Usuario: {}, Punto: {}",
-            request.usuarioId, request.puntoId)
-
-        return try {
-            val resultado = exploracionService.visitarPunto(request)
-            logger.info("✅ Punto visitado exitosamente")
-            ResponseEntity.ok(resultado)
-        } catch (e: IllegalArgumentException) {
-            logger.error("❌ Error de validación: {}", e.message)
-            throw e
-        } catch (e: Exception) {
-            logger.error("❌ Error visitando punto: {}", e.message, e)
-            throw e
-        }
+    @GetMapping("/progreso/{partidaId}")
+    fun obtenerProgresoCompleto(
+        @PathVariable partidaId: Long
+    ): ResponseEntity<ProgresoExploracionResponse> {
+        val progreso = exploracionService.obtenerProgresoCompleto(partidaId)
+        return ResponseEntity.ok(progreso)
     }
 
-    /**
-     * GET /api/exploracion/punto/{puntoId}/detalle
-     * Obtener detalle completo de un punto
-     */
-    @GetMapping("/punto/{puntoId}/detalle")
-    fun obtenerDetallePunto(
+    // ==================== PUNTOS DE INTERÉS ====================
+
+    @GetMapping("/puntos/{partidaId}")
+    fun obtenerPuntosDisponibles(
+        @PathVariable partidaId: Long
+    ): ResponseEntity<List<PuntoInteresDTO>> {
+        val puntos = exploracionService.obtenerPuntosDisponibles(partidaId)
+        return ResponseEntity.ok(puntos)
+    }
+
+    @PostMapping("/puntos/descubrir")
+    fun descubrirPunto(
+        @Valid @RequestBody request: DescubrirPuntoRequest
+    ): ResponseEntity<DescubrimientoPuntoResponse> {
+        val resultado = exploracionService.descubrirPunto(request)
+        return ResponseEntity.ok(resultado)
+    }
+
+    // ==================== CAPAS POR PUNTO (NUEVO) ====================
+
+    @GetMapping("/puntos/{puntoId}/capas")
+    fun obtenerCapasPunto(
         @PathVariable puntoId: Long,
-        @RequestParam usuarioId: Long
-    ): ResponseEntity<DetallePuntoResponse> {
-        logger.info("🌐 GET /exploracion/punto/{}/detalle", puntoId)
-
-        return try {
-            val detalle = exploracionService.obtenerDetallePunto(puntoId, usuarioId)
-            logger.info("✅ Detalle del punto obtenido exitosamente")
-            ResponseEntity.ok(detalle)
-        } catch (e: Exception) {
-            logger.error("❌ Error obteniendo detalle: {}", e.message, e)
-            throw e
-        }
+        @RequestParam partidaId: Long
+    ): ResponseEntity<List<CapaPuntoDTO>> {
+        val capas = exploracionCapasService.obtenerCapasPunto(puntoId, partidaId)
+        return ResponseEntity.ok(capas)
     }
 
-    /**
-     * POST /api/exploracion/quiz/responder
-     * Responder pregunta del quiz
-     */
-    @PostMapping("/quiz/responder")
-    fun responderQuiz(
-        @Valid @RequestBody request: ResponderQuizRequest
-    ): ResponseEntity<ResultadoQuizResponse> {
-        logger.info("🌐 POST /exploracion/quiz/responder")
-
-        return try {
-            val resultado = exploracionService.responderQuiz(request)
-            logger.info("✅ Quiz respondido - Correcto: {}", resultado.correcto)
-            ResponseEntity.ok(resultado)
-        } catch (e: Exception) {
-            logger.error("❌ Error respondiendo quiz: {}", e.message, e)
-            throw e
-        }
+    @PostMapping("/puntos/capa/descubrir")
+    fun descubrirCapaPunto(
+        @Valid @RequestBody request: DescubrirCapaPuntoRequest
+    ): ResponseEntity<DescubrirCapaPuntoResponse> {
+        val resultado = exploracionCapasService.descubrirCapaPunto(request)
+        return ResponseEntity.ok(resultado)
     }
 
-    /**
-     * POST /api/exploracion/artefacto/buscar
-     * Buscar artefacto en un punto
-     */
-    @PostMapping("/artefacto/buscar")
-    fun buscarArtefacto(
-        @Valid @RequestBody request: BuscarArtefactoRequest
-    ): ResponseEntity<ResultadoBusquedaResponse> {
-        logger.info("🌐 POST /exploracion/artefacto/buscar")
+    // ==================== CAPAS TEMPORALES ====================
 
-        return try {
-            val resultado = exploracionService.buscarArtefactoManual(request)
-            logger.info("✅ Búsqueda completada - Encontrado: {}", resultado.encontrado)
-            ResponseEntity.ok(resultado)
-        } catch (e: Exception) {
-            logger.error("❌ Error buscando artefacto: {}", e.message, e)
-            throw e
-        }
+    @GetMapping("/capas/{partidaId}")
+    fun obtenerCapas(
+        @PathVariable partidaId: Long
+    ): ResponseEntity<List<NivelCapaDTO>> {
+        val capas = exploracionService.obtenerCapas(partidaId)
+        return ResponseEntity.ok(capas)
     }
 
-    /**
-     * GET /api/exploracion/coleccion/{usuarioId}
-     * Obtener colección de artefactos del usuario
-     */
-    @GetMapping("/coleccion/{usuarioId}")
-    fun obtenerColeccion(
-        @PathVariable usuarioId: Long
-    ): ResponseEntity<List<ArtefactoDTO>> {
-        logger.info("🌐 GET /exploracion/coleccion/{}", usuarioId)
+    // ==================== FOTOGRAFÍA ====================
 
-        return try {
-            val coleccion = exploracionService.obtenerColeccionArtefactos(usuarioId)
-            logger.info("✅ Colección obtenida - {} artefactos", coleccion.size)
-            ResponseEntity.ok(coleccion)
-        } catch (e: Exception) {
-            logger.error("❌ Error obteniendo colección: {}", e.message, e)
-            throw e
-        }
+    @GetMapping("/fotografia/objetivos/{partidaId}")
+    fun obtenerObjetivosFotograficos(
+        @PathVariable partidaId: Long,
+        @RequestParam(required = false) puntoId: Long?
+    ): ResponseEntity<List<FotografiaObjetivoDTO>> {
+        val objetivos = exploracionService.obtenerObjetivosFotograficos(partidaId, puntoId)
+        return ResponseEntity.ok(objetivos)
     }
 
-    /**
-     * GET /api/exploracion/misiones/{usuarioId}
-     * Obtener misiones disponibles para el usuario
-     */
-    @GetMapping("/misiones/{usuarioId}")
-    fun obtenerMisiones(
-        @PathVariable usuarioId: Long
+    @PostMapping("/fotografia/capturar")
+    fun capturarFotografia(
+        @Valid @RequestBody request: CapturarFotografiaRequest
+    ): ResponseEntity<CapturarFotografiaResponse> {
+        val resultado = exploracionService.capturarFotografia(request)
+        return ResponseEntity.ok(resultado)
+    }
+
+    @GetMapping("/fotografia/galeria/{partidaId}")
+    fun obtenerGaleriaFotografias(
+        @PathVariable partidaId: Long
+    ): ResponseEntity<List<FotografiaCapturadaDTO>> {
+        val galeria = exploracionService.obtenerGaleriaFotografias(partidaId)
+        return ResponseEntity.ok(galeria)
+    }
+
+    // ==================== DIÁLOGOS ====================
+
+    @PostMapping("/dialogo/espiritu")
+    fun dialogarConEspiritu(
+        @Valid @RequestBody request: DialogarEspirituRequest
+    ): ResponseEntity<DialogoEspirituResponse> {
+        val resultado = exploracionService.dialogarConEspiritu(request)
+        return ResponseEntity.ok(resultado)
+    }
+
+    @GetMapping("/dialogo/historial/{partidaId}")
+    fun obtenerHistorialDialogos(
+        @PathVariable partidaId: Long,
+        @RequestParam(required = false) nivelCapa: NivelCapa?
+    ): ResponseEntity<List<DialogoHistorialDTO>> {
+        val historial = exploracionService.obtenerHistorialDialogos(partidaId, nivelCapa)
+        return ResponseEntity.ok(historial)
+    }
+
+    // ==================== MISIONES ====================
+
+    @GetMapping("/misiones/{partidaId}")
+    fun obtenerMisionesDisponibles(
+        @PathVariable partidaId: Long
     ): ResponseEntity<List<MisionDTO>> {
-        logger.info("🌐 GET /exploracion/misiones/{}", usuarioId)
-
-        return try {
-            val misiones = exploracionService.obtenerMisionesDisponibles(usuarioId)
-            logger.info("✅ Misiones obtenidas - {} disponibles", misiones.size)
-            ResponseEntity.ok(misiones)
-        } catch (e: Exception) {
-            logger.error("❌ Error obteniendo misiones: {}", e.message, e)
-            throw e
-        }
+        val misiones = exploracionService.obtenerMisionesDisponibles(partidaId)
+        return ResponseEntity.ok(misiones)
     }
 
-    /**
-     * POST /api/exploracion/mision/{misionId}/aceptar
-     * Aceptar una misión
-     */
-    @PostMapping("/mision/{misionId}/aceptar")
-    fun aceptarMision(
-        @PathVariable misionId: Long,
-        @RequestParam usuarioId: Long
-    ): ResponseEntity<MisionDTO> {
-        logger.info("🌐 POST /exploracion/mision/{}/aceptar", misionId)
-
-        return try {
-            val mision = exploracionService.aceptarMision(usuarioId, misionId)
-            logger.info("✅ Misión aceptada exitosamente")
-            ResponseEntity.ok(mision)
-        } catch (e: Exception) {
-            logger.error("❌ Error aceptando misión: {}", e.message, e)
-            throw e
-        }
-    }
-
-    /**
-     * GET /api/exploracion/estadisticas/{usuarioId}
-     * Obtener estadísticas detalladas de exploración
-     */
-    @GetMapping("/estadisticas/{usuarioId}")
-    fun obtenerEstadisticas(
-        @PathVariable usuarioId: Long
-    ): ResponseEntity<EstadisticasExploracionDTO> {
-        logger.info("🌐 GET /exploracion/estadisticas/{}", usuarioId)
-
-        return try {
-            val estadisticas = exploracionService.obtenerEstadisticasDetalladas(usuarioId)
-            logger.info("✅ Estadísticas obtenidas exitosamente")
-            ResponseEntity.ok(estadisticas)
-        } catch (e: Exception) {
-            logger.error("❌ Error obteniendo estadísticas: {}", e.message, e)
-            throw e
-        }
+    @PostMapping("/misiones/completar")
+    fun completarMision(
+        @Valid @RequestBody request: CompletarMisionRequest
+    ): ResponseEntity<CompletarMisionResponse> {
+        val resultado = exploracionService.completarMision(request)
+        return ResponseEntity.ok(resultado)
     }
 }

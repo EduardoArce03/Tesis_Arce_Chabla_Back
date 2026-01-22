@@ -68,7 +68,7 @@ data class Mision(
     val orden: Int,
 
     @Column(nullable = false)
-    val activa: Boolean = true
+    val activa: Boolean = true,
 )
 
 // ========== FASE DE MISIÓN ==========

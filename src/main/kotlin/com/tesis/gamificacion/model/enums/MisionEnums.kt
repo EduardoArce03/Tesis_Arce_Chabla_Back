@@ -11,7 +11,8 @@ enum class EstadoMision {
     BLOQUEADA,
     DISPONIBLE,
     EN_PROGRESO,
-    COMPLETADA
+    COMPLETADA,
+    NO_INICIADA
 }
 
 enum class TipoFase {

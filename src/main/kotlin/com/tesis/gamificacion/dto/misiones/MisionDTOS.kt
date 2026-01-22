@@ -1,5 +1,6 @@
 package com.tesis.gamificacion.dto.response
 
+import com.tesis.gamificacion.dto.misiones.ProgresoMisionDTO
 import com.tesis.gamificacion.model.enums.*
 import java.time.LocalDateTime
 
