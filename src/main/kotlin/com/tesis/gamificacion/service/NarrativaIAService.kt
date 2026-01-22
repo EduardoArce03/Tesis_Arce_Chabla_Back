@@ -82,6 +82,60 @@ class NarrativaIAService(
         }
     }
 
+    fun generarNarrativaEducativa(
+        imagenUrl: String,
+        categoria: String,
+        nombreKichwa: String,
+        nombreEspanol: String
+    ): Map<String, Any>? {
+        val url = "$BASE_URL/narrativa-educativa2"
+
+        return try {
+            // 1. Descargar la imagen
+            val imagenBytes = descargarImagen(imagenUrl)
+
+            // 2. Crear MultiValueMap
+            val body: MultiValueMap<String, Any> = LinkedMultiValueMap()
+
+            // Convertir imagen a Resource (Esto está bien, pero asegúrate que sea object)
+            val imagenResource = object : ByteArrayResource(imagenBytes) {
+                override fun getFilename(): String = "punto.jpg"
+            }
+
+            body.add("image", imagenResource)
+            body.add("concepto", categoria)
+            body.add("nombre_kichwa", nombreKichwa)
+            body.add("nombre_espanol", nombreEspanol)
+
+            // 3. Enviar request
+            // Java devuelve Map<*,*>, así que lo guardamos en una variable intermedia
+            val responseRaw = ejecutarLlamadaIA(url, body, Map::class.java)
+
+            // 4. ✅ SOLUCIÓN: Hacemos el cast explícito y seguro
+            @Suppress("UNCHECKED_CAST")
+            return responseRaw as? Map<String, Any>
+
+        } catch (e: Exception) {
+            println("❌ Error generando narrativa educativa: ${e.message}")
+            e.printStackTrace()
+            null
+        }
+    }
+
+    private fun descargarImagen(imagenUrl: String): ByteArray {
+        return try {
+            restTemplate.getForObject(imagenUrl, ByteArray::class.java)
+                ?: throw IllegalArgumentException("No se pudo descargar la imagen")
+        } catch (e: Exception) {
+            println("⚠️ Error descargando imagen: ${e.message}, usando imagen por defecto")
+            // Retornar imagen placeholder pequeña (1x1 pixel transparente PNG)
+            byteArrayOf(
+                0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+                0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52
+            )
+        }
+    }
+
     /**
      * Extrae elementos clave de la narrativa usando IA
      */

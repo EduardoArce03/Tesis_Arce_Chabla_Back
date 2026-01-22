@@ -7,6 +7,7 @@ import com.tesis.gamificacion.model.request.*
 import com.tesis.gamificacion.model.responses.*
 import com.tesis.gamificacion.model.responses.ProgresoExploracionResponse
 import com.tesis.gamificacion.repository.*
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDateTime
@@ -29,6 +30,7 @@ class ExploracionService(
     private val usuarioArtefactoRepository: UsuarioArtefactoRepository,
 ) {
 
+    private val log = LoggerFactory.getLogger(ExploracionService::class.java)
     // ==================== INICIALIZACIÓN ====================
 
     /**
@@ -247,18 +249,16 @@ class ExploracionService(
     }
 
     private fun generarNarrativaDescubrimiento(punto: PuntoInteres, nivel: NivelCapa): String {
-        val conceptoClave = "${punto.nombre} - ${nivel.nombre} - ${punto.categoria}"
-
-        // Intentar generar con IA
+        log.info("Generando narrativa educativa")
         val narrativaIA = punto.imagenUrl?.let { imagenUrl ->
-            narrativaIAService.generarNarrativaDescubrimiento(
-
-                nombrePunto = punto.nombre,
+            narrativaIAService.generarNarrativaEducativa(
+                imagenUrl = imagenUrl,
                 categoria = punto.categoria.name,
-                nivel = nivel.name,
-                descripcionBase = punto.descripcion
-            )
+                nombreKichwa = punto.nombreKichwa ?: "",
+                nombreEspanol = punto.nombre
+            )?.get("descripcion") as? String
         }
+
         return narrativaIA ?: generarNarrativaFallback(punto, nivel)
     }
 

@@ -33,6 +33,7 @@ interface CapaTemporalRepository : JpaRepository<CapaTemporal, Long> {
     fun findByPuntoInteresIdAndNivel(puntoId: Long, nivel: com.tesis.gamificacion.model.enums.NivelCapa): CapaTemporal?
     fun findAllByPuntoInteresId(puntoId: Long): List<CapaTemporal>
     fun findByNivel(nivel: com.tesis.gamificacion.model.enums.NivelCapa): List<CapaTemporal>
+    fun findByPuntoInteres(punto: PuntoInteres): List<CapaTemporal>
 }
 
 // ========================================
