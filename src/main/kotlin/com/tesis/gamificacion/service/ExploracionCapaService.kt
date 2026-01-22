@@ -9,6 +9,7 @@ import com.tesis.gamificacion.repository.*
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.time.LocalDateTime
 
 /**
  * Servicio extendido para manejar el sistema de capas por punto
@@ -24,7 +25,8 @@ class ExploracionCapasService(
     private val dialogoHistorialRepository: DialogoHistorialRepository,
     private val misionService: MisionService,
     private val narrativaIAService: NarrativaIAService,
-    private val capaDescubrimientoRepository: CapaDescubrimientoRepository
+    private val capaDescubrimientoRepository: CapaDescubrimientoRepository,
+    private val capaTemporalRepository: CapaTemporalRepository
 ) {
 
     private val logger = LoggerFactory.getLogger(this::class.java)
@@ -230,19 +232,48 @@ class ExploracionCapasService(
         nivelCapa: NivelCapa,
         partidaId: Long
     ): MisionDTO? {
-        return try {
-            // Buscar misiones que involucren este punto y nivel
-            val misiones = misionService.obtenerMisionesDisponibles(partidaId)
+        println("🔍 DEBUG: Buscando misión - Punto: ${punto.id}/${punto.nombre}, Nivel: ${nivelCapa.name}")
 
-            // Buscar misión que mencione el punto y la capa
-            misiones.find { mision ->
-                mision.descripcion.contains(punto.nombre, ignoreCase = true) &&
-                        mision.descripcion.contains(nivelCapa.nombre, ignoreCase = true)
+        return try {
+            val capaTemporal = capaTemporalRepository.findByPuntoInteresAndNivel(punto, nivelCapa)
+
+            if (capaTemporal == null) {
+                println("❌ No existe capa temporal para punto ${punto.id} nivel ${nivelCapa.name}")
+                return null
             }
+
+            println("✅ Capa temporal encontrada ID: ${capaTemporal.id}")
+
+            val mision = capaTemporal.mision
+
+            if (mision == null) {
+                println("❌ La capa ID ${capaTemporal.id} NO tiene misión asociada")
+                return null
+            }
+
+            println("✅ Misión encontrada: ${mision.titulo} (ID: ${mision.id})")
+
+            MisionDTO(
+                id = mision.id!!,
+                titulo = mision.titulo,
+                descripcion = mision.descripcionCorta,
+                progreso = calcularProgresoMision(mision, partidaId),
+                estado = EstadoMision.DISPONIBLE,
+                tipo = TipoMision.TIEMPO_EXPLORACION,
+                objetivo = 19,
+                recompensaPuntos = 20,
+                fechaLimite = LocalDateTime.now().plusDays(1)
+            )
         } catch (e: Exception) {
-            // Si no hay misiones o hay error, devolver null
+            println("⚠️ Error obteniendo misión: ${e.message}")
+            e.printStackTrace()
             null
         }
+    }
+
+    private fun calcularProgresoMision(mision: Mision, partidaId: Long): Int {
+        // Por ahora devolver 0, después puedes calcular según objetivos
+        return 0
     }
 
     /**

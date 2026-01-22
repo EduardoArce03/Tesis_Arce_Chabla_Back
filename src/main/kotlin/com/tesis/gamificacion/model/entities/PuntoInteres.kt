@@ -126,7 +126,7 @@ data class CapaTemporal(
     val objetivosFotograficos: MutableList<FotografiaObjetivo> = mutableListOf(),
 
     @OneToOne(cascade = [CascadeType.ALL], orphanRemoval = true)
-    val mision: Mision? = null
+    var mision: Mision? = null
 )
 
 // ========================================

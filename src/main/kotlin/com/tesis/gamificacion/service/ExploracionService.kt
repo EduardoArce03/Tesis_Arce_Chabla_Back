@@ -508,6 +508,7 @@ class ExploracionService(
      * Dialogar con espíritu ancestral
      */
     fun dialogarConEspiritu(request: DialogarEspirituRequest): DialogoEspirituResponse {
+        log.info("Generando dialogo con el espiritu tonto")
         val progreso = obtenerProgreso(request.partidaId)
         val capa = capaDescubrimientoRepository.findByProgresoAndNivel(progreso, request.nivelCapa)
             ?: throw IllegalArgumentException("Capa no encontrada")
