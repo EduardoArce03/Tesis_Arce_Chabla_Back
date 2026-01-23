@@ -248,7 +248,10 @@ data class CapaDescubrimiento(
 @Table(
     name = "puntos_descubrimiento",
     uniqueConstraints = [
-        UniqueConstraint(columnNames = ["usuario_id", "punto_interes_id"])
+        UniqueConstraint(
+            name = "uk_punto_usuario_nivel",
+            columnNames = ["usuario_id", "punto_interes_id", "nivel_descubrimiento"]
+        )
     ]
 )
 data class PuntoDescubrimiento(

@@ -7,6 +7,7 @@ import com.tesis.gamificacion.model.request.*
 import com.tesis.gamificacion.model.responses.*
 import com.tesis.gamificacion.repository.*
 import org.slf4j.LoggerFactory
+import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDateTime
@@ -318,7 +319,7 @@ class ExploracionCapasService(
      * Descubrir/Entrar a una capa específica de un punto
      */
     fun descubrirCapaPunto(request: DescubrirCapaPuntoRequest): DescubrirCapaPuntoResponse {
-        logger.info("📍 Iniciando descubrirCapaPunto. Request: $request") // Log de entrada
+        logger.info("📍 Iniciando descubrirCapaPunto. Request: $request")
 
         try {
             // BUSQUEDA DE PUNTO
@@ -355,13 +356,19 @@ class ExploracionCapasService(
                 )
             }
 
-            // LOGICA DE DESCUBRIMIENTO
-            val descubrimientoExistente = punto.descubrimientos.find {
-                it.progreso.id == progreso.id && esDescubrimientoDeNivel(it, request.nivelCapa)
-            }
+            // BUSCAR DESCUBRIMIENTO EXISTENTE
+            val descubrimientoExistente = puntoDescubrimientoRepository
+                .findByProgresoAndPuntoInteresAndNivelDescubrimiento(
+                    progreso,
+                    punto,
+                    request.nivelCapa
+                )
+
+            logger.info("🔍 Descubrimiento existente: ${descubrimientoExistente?.id} (null = nuevo)")
 
             val narrativaNueva = descubrimientoExistente == null
 
+            // LÓGICA DE DESCUBRIMIENTO
             if (descubrimientoExistente == null) {
                 logger.info("✨ Primer descubrimiento detectado para punto ${punto.id} en capa ${request.nivelCapa}")
 
@@ -373,22 +380,31 @@ class ExploracionCapasService(
                     quizCompletado = false,
                     usuarioId = progreso.usuarioId,
                 )
-                punto.descubrimientos.add(nuevoDescubrimiento)
-                puntoInteresRepository.save(punto) // Guardado BD
 
-                // ⚠️ PUNTO CRÍTICO: LLAMADA EXTERNA A IA
+                // GENERAR NARRATIVA CON IA
                 try {
                     logger.info("🤖 Solicitando narrativa a IA Service...")
-                    narrativaIAService.generarNarrativaDescubrimiento(
+                    val narrativa = narrativaIAService.generarNarrativaDescubrimiento(
                         nombrePunto = punto.nombre,
                         categoria = punto.categoria.name,
                         nivel = request.nivelCapa.name,
                         descripcionBase = punto.descripcion
-                    )
-                    logger.info("✅ Narrativa IA generada correctamente")
+                    ) ?: generarNarrativaFallback(punto, request.nivelCapa)
+
+                    nuevoDescubrimiento.narrativa = narrativa
+                    logger.info("✅ Narrativa guardada: ${narrativa.take(50)}...")
+
                 } catch (e: Exception) {
-                    // Importante: No detenemos el juego si falla la IA, pero lo logueamos
-                    logger.error("❌ Error generando narrativa IA (no crítico): ${e.message}", e)
+                    logger.error("❌ Error generando narrativa IA: ${e.message}", e)
+                    nuevoDescubrimiento.narrativa = generarNarrativaFallback(punto, request.nivelCapa)
+                }
+
+                // GUARDAR CON PROTECCIÓN CONTRA DUPLICADOS
+                try {
+                    puntoDescubrimientoRepository.save(nuevoDescubrimiento)
+                    logger.info("✅ Descubrimiento guardado con ID: ${nuevoDescubrimiento.id}")
+                } catch (e: DataIntegrityViolationException) {
+                    logger.warn("⚠️ Race condition detectado, ignorando error de duplicado")
                 }
 
             } else {
@@ -410,9 +426,12 @@ class ExploracionCapasService(
             )
 
         } catch (e: Exception) {
-            // 🚨 AQUÍ ATRAPAS CUALQUIER ERROR QUE NO TE ESTABA SALIENDO
             logger.error("❌ ERROR CRÍTICO en descubrirCapaPunto: ${e.message}", e)
-            throw e // Re-lanzamos la excepción para que el Controller la maneje, pero ya quedó registrada en log
+            throw e
         }
+    }
+
+    private fun generarNarrativaFallback(punto: PuntoInteres, nivel: NivelCapa): String {
+        return "Has descubierto ${punto.nombre} en ${nivel.nombre}. ${punto.descripcion}"
     }
 }

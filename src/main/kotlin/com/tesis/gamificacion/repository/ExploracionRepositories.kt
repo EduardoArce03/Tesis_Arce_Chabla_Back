@@ -96,6 +96,12 @@ interface PuntoDescubrimientoRepository : JpaRepository<PuntoDescubrimiento, Lon
 
     fun countByProgreso(progreso: ProgresoExploracion): Long
 
+    fun findByProgresoAndPuntoInteresAndNivelDescubrimiento(
+        progreso: ProgresoExploracion,
+        puntoInteres: PuntoInteres,
+        nivelDescubrimiento: NivelCapa
+    ): PuntoDescubrimiento?
+
     @Query("""
         SELECT d.puntoInteres.id 
         FROM PuntoDescubrimiento d 
