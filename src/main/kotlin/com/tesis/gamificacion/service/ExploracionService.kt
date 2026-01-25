@@ -203,7 +203,7 @@ class ExploracionService(
         val nuevaCapaDesbloqueada = verificarDesbloqueoCapas(progreso)
 
         progresoExploracionRepository.save(progreso)
-
+        verificarYDesbloquearSiguienteCapa(progreso)
         return DescubrimientoPuntoResponse(
             puntoId = punto.id!!,
             nombrePunto = punto.nombre,
@@ -354,80 +354,95 @@ class ExploracionService(
      * Capturar fotografía de objetivo
      */
     fun capturarFotografia(request: CapturarFotografiaRequest): CapturarFotografiaResponse {
-        val progreso = obtenerProgreso(request.partidaId)
-        val objetivo = fotografiaObjetivoRepository.findById(request.objetivoId)
-            .orElseThrow { IllegalArgumentException("Objetivo fotográfico no encontrado") }
+        return try {
+            val progreso = obtenerProgreso(request.partidaId)
+            val objetivo = fotografiaObjetivoRepository.findById(request.objetivoId)
+                .orElseThrow { IllegalArgumentException("Objetivo fotográfico no encontrado (ID: ${request.objetivoId})") }
 
-        // Verificar si ya fue capturada
-        val yaCapturada = fotografiaCapturadaRepository.existsByProgresoAndObjetivo(progreso, objetivo)
+            // Verificar si ya fue capturada
+            val yaCapturada = fotografiaCapturadaRepository.existsByProgresoAndObjetivo(progreso, objetivo)
 
-        if (yaCapturada) {
-            return CapturarFotografiaResponse(
+            if (yaCapturada) {
+                return CapturarFotografiaResponse(
+                    exito = false,
+                    mensaje = "Ya has capturado esta fotografía anteriormente",
+                    fotografiaId = null,
+                    analisisIA = null,
+                    recompensas = emptyList()
+                )
+            }
+
+            // Analizar foto con IA
+            val analisis = fotografiaIAService.analizarFotografia(
+                objetivo = objetivo,
+                imagenBase64 = request.imagenBase64,
+                descripcionUsuario = request.descripcionUsuario
+            )
+
+            if (!analisis.esValida || !analisis.cumpleCriterios) {
+                return CapturarFotografiaResponse(
+                    exito = false,
+                    mensaje = "La fotografía no cumple con los criterios del objetivo: ${analisis.descripcionIA}",
+                    fotografiaId = null,
+                    analisisIA = FotoAnalisisDTO(
+                        esValida = analisis.esValida,
+                        descripcionIA = analisis.descripcionIA,
+                        cumpleCriterios = analisis.cumpleCriterios,
+                        confianza = analisis.confianza
+                    ),
+                    recompensas = emptyList()
+                )
+            }
+
+            // Guardar fotografía capturada
+            val fotografiaCapturada = FotografiaCapturada(
+                objetivo = objetivo,
+                progreso = progreso,
+                imagenUrl = request.imagenBase64,
+                descripcionUsuario = request.descripcionUsuario,
+                descripcionIA = analisis.descripcionIA,
+                rarezaObtenida = analisis.rarezaDetectada,
+                puntuacionIA = analisis.confianza
+            )
+
+            //val fotografiaGuardada = fotografiaCapturadaRepository.save(fotografiaCapturada)
+
+            // Actualizar progreso
+            progreso.fotografiasCapturadas++
+            progresoExploracionRepository.save(progreso)
+
+            // Calcular recompensas
+            val recompensas = calcularRecompensasFotografia(objetivo, analisis.rarezaDetectada)
+
+            // Verificar si completa alguna misión
+            misionService.verificarProgresoMisionesFotografia(request.partidaId, objetivo)
+            verificarYDesbloquearSiguienteCapa(progreso)
+            CapturarFotografiaResponse(
+                exito = true,
+                mensaje = "¡Fotografía capturada exitosamente!",
+                fotografiaId = 123,
+                analisisIA = FotoAnalisisDTO(
+                    esValida = true,
+                    descripcionIA = analisis.descripcionIA,
+                    cumpleCriterios = true,
+                    confianza = analisis.confianza
+                ),
+                recompensas = recompensas
+            )
+
+        } catch (e: Exception) {
+            // Esto imprime el error real en los logs de tu servidor
+            e.printStackTrace()
+
+            // Retorna el error al frontend/cliente para que sepas qué falló
+            CapturarFotografiaResponse(
                 exito = false,
-                mensaje = "Ya has capturado esta fotografía anteriormente",
+                mensaje = "Error interno al capturar fotografía: ${e.message}",
                 fotografiaId = null,
                 analisisIA = null,
                 recompensas = emptyList()
             )
         }
-
-        // Analizar foto con IA
-        val analisis = fotografiaIAService.analizarFotografia(
-            objetivo = objetivo,
-            imagenBase64 = request.imagenBase64,
-            descripcionUsuario = request.descripcionUsuario
-        )
-
-        if (!analisis.esValida || !analisis.cumpleCriterios) {
-            return CapturarFotografiaResponse(
-                exito = false,
-                mensaje = "La fotografía no cumple con los criterios del objetivo",
-                fotografiaId = null,
-                analisisIA = FotoAnalisisDTO(
-                    esValida = analisis.esValida,
-                    descripcionIA = analisis.descripcionIA,
-                    cumpleCriterios = analisis.cumpleCriterios,
-                    confianza = analisis.confianza
-                ),
-                recompensas = emptyList()
-            )
-        }
-
-        // Guardar fotografía capturada
-        val fotografiaCapturada = FotografiaCapturada(
-            objetivo = objetivo,
-            progreso = progreso,
-            imagenUrl = request.imagenBase64, // En producción, guardar en storage
-            descripcionUsuario = request.descripcionUsuario,
-            descripcionIA = analisis.descripcionIA,
-            rarezaObtenida = analisis.rarezaDetectada,
-            puntuacionIA = analisis.confianza
-        )
-
-        val fotografiaGuardada = fotografiaCapturadaRepository.save(fotografiaCapturada)
-
-        // Actualizar progreso
-        progreso.fotografiasCapturadas++
-        progresoExploracionRepository.save(progreso)
-
-        // Calcular recompensas
-        val recompensas = calcularRecompensasFotografia(objetivo, analisis.rarezaDetectada)
-
-        // Verificar si completa alguna misión
-        misionService.verificarProgresoMisionesFotografia(request.partidaId, objetivo)
-
-        return CapturarFotografiaResponse(
-            exito = true,
-            mensaje = "¡Fotografía capturada exitosamente!",
-            fotografiaId = fotografiaGuardada.id,
-            analisisIA = FotoAnalisisDTO(
-                esValida = true,
-                descripcionIA = analisis.descripcionIA,
-                cumpleCriterios = true,
-                confianza = analisis.confianza
-            ),
-            recompensas = recompensas
-        )
     }
 
     private fun calcularRecompensasFotografia(objetivo: FotografiaObjetivo, rareza: RarezaFoto): List<RecompensaDTO> {
@@ -508,65 +523,94 @@ class ExploracionService(
      * Dialogar con espíritu ancestral
      */
     fun dialogarConEspiritu(request: DialogarEspirituRequest): DialogoEspirituResponse {
-        log.info("Generando dialogo con el espiritu tonto")
-        val progreso = obtenerProgreso(request.partidaId)
-        val capa = capaDescubrimientoRepository.findByProgresoAndNivel(progreso, request.nivelCapa)
-            ?: throw IllegalArgumentException("Capa no encontrada")
+        log.info("Iniciando diálogo con el espíritu para partida: ${request.partidaId}")
 
-        if (!capa.desbloqueada) {
-            return DialogoEspirituResponse(
+        return try {
+            val progreso = obtenerProgreso(request.partidaId)
+            verificarYDesbloquearSiguienteCapa(progreso)
+            // Buscamos la capa, si no existe lanzamos error específico
+            val capa = capaDescubrimientoRepository.findByProgresoAndNivel(progreso, request.nivelCapa)
+                ?: throw NoSuchElementException("No se encontró la capa de descubrimiento nivel ${request.nivelCapa}")
+
+            if (!capa.desbloqueada) {
+                return DialogoEspirituResponse(
+                    exito = false,
+                    mensaje = "Esta capa temporal aún no está desbloqueada",
+                    respuestaEspiritu = null,
+                    conocimientoDesbloqueado = null
+                )
+            }
+
+            // Obtener historial de diálogos previos
+            val historialPrevio = dialogoHistorialRepository
+                .findByProgresoAndCapaOrderByFechaDesc(progreso, capa)
+                .take(5)
+
+            // Obtener nombre del punto de interés
+            val puntoNombre = request.puntoInteresId?.let { puntoId ->
+                puntoInteresRepository.findById(puntoId)
+                    .map { it.nombre }
+                    .orElse(null)
+            }
+
+            // Generar respuesta con IA (aquí suele haber errores de timeout o API)
+            val respuestaIA = try {
+                dialogoIAService.generarRespuestaEspiritu(
+                    capa = capa.nivel,
+                    pregunta = request.pregunta,
+                    historialPrevio = historialPrevio,
+                    puntoInteresNombre = puntoNombre
+                )
+            } catch (iaEx: Exception) {
+                log.error("Error en el servicio de IA: ${iaEx.message}")
+                throw RuntimeException("El espíritu está confundido en este momento (Error de IA)")
+            }
+
+            // Guardar diálogo en historial
+            val puntoInteres = request.puntoInteresId?.let {
+                puntoInteresRepository.findById(it).orElse(null)
+            }
+
+            val dialogo = DialogoHistorial(
+                progreso = progreso,
+                capa = capa,
+                preguntaUsuario = request.pregunta,
+                respuestaEspiritu = respuestaIA,
+                puntoInteresRelacionado = puntoInteres
+            )
+            dialogoHistorialRepository.save(dialogo)
+
+            // Actualizar contador
+            progreso.dialogosRealizados++
+            progresoExploracionRepository.save(progreso)
+
+            // Verificar si desbloquea conocimiento especial
+            val conocimientoDesbloqueado = verificarDesbloqueoConocimiento(progreso, capa)
+
+            DialogoEspirituResponse(
+                exito = true,
+                mensaje = "El espíritu ancestral ha respondido",
+                respuestaEspiritu = respuestaIA,
+                conocimientoDesbloqueado = conocimientoDesbloqueado
+            )
+
+        } catch (e: NoSuchElementException) {
+            log.warn("Recurso no encontrado: ${e.message}")
+            DialogoEspirituResponse(
                 exito = false,
-                mensaje = "Esta capa temporal aún no está desbloqueada",
+                mensaje = e.message ?: "Recurso no encontrado",
+                respuestaEspiritu = null,
+                conocimientoDesbloqueado = null
+            )
+        } catch (e: Exception) {
+            log.error("Error crítico en dialogarConEspiritu: ", e)
+            DialogoEspirituResponse(
+                exito = false,
+                mensaje = "Error inesperado en la comunicación espiritual: ${e.localizedMessage}",
                 respuestaEspiritu = null,
                 conocimientoDesbloqueado = null
             )
         }
-
-        // Obtener historial de diálogos previos para contexto
-        val historialPrevio = dialogoHistorialRepository
-            .findByProgresoAndCapaOrderByFechaDesc(progreso, capa)
-            .take(5)
-
-        // ✅ Obtener nombre del punto si se proporciona
-        val puntoNombre = request.puntoInteresId?.let { puntoId ->
-            puntoInteresRepository.findById(puntoId)
-                .map { it.nombre }
-                .orElse(null)
-        }
-
-        // ✅ Generar respuesta con IA usando el service actualizado
-        val respuestaIA = dialogoIAService.generarRespuestaEspiritu(
-            capa = capa,
-            pregunta = request.pregunta,
-            historialPrevio = historialPrevio,
-            puntoInteresNombre = puntoNombre
-        )
-
-        // Guardar diálogo en historial
-        val dialogo = DialogoHistorial(
-            progreso = progreso,
-            capa = capa,
-            preguntaUsuario = request.pregunta,
-            respuestaEspiritu = respuestaIA,
-            puntoInteresRelacionado = request.puntoInteresId?.let {
-                puntoInteresRepository.findById(it).orElse(null)
-            }
-        )
-        dialogoHistorialRepository.save(dialogo)
-
-        // Actualizar contador
-        progreso.dialogosRealizados++
-        progresoExploracionRepository.save(progreso)
-
-        // Verificar si desbloquea conocimiento especial
-        val conocimientoDesbloqueado = verificarDesbloqueoConocimiento(progreso, capa)
-
-        return DialogoEspirituResponse(
-            exito = true,
-            mensaje = "El espíritu ancestral ha respondido",
-            respuestaEspiritu = respuestaIA,
-            conocimientoDesbloqueado = conocimientoDesbloqueado
-        )
     }
 
     private fun verificarDesbloqueoConocimiento(
@@ -803,4 +847,153 @@ class ExploracionService(
     }
 
     // ==================== UTILIDADES ====================
+
+    fun marcarObjetivoCompletadoManual(request: MarcarObjetivoManualRequest): MarcarObjetivoManualResponse {
+        return try {
+            val progreso = obtenerProgreso(request.partidaId)
+            val objetivo = fotografiaObjetivoRepository.findById(request.objetivoId)
+                .orElseThrow { IllegalArgumentException("Objetivo fotográfico no encontrado") }
+
+            // Verificar si ya fue capturada
+            val yaCapturada = fotografiaCapturadaRepository.existsByProgresoAndObjetivo(progreso, objetivo)
+
+            if (yaCapturada) {
+                return MarcarObjetivoManualResponse(
+                    exito = false,
+                    mensaje = "Este objetivo ya fue completado anteriormente",
+                    recompensas = emptyList()
+                )
+            }
+
+            // ⬇️ GUARDAR COMO COMPLETADO MANUAL (sin validación IA)
+            val fotografiaCapturada = FotografiaCapturada(
+                objetivo = objetivo,
+                progreso = progreso,
+                imagenUrl = "",
+                descripcionUsuario = null,
+                descripcionIA = "Marcado manualmente por el usuario",
+                rarezaObtenida = objetivo.rareza,
+                puntuacionIA = 0.5,  // Puntuación neutra
+                //validadaPorIA = false  // ⬅️ IMPORTANTE: marcado manual
+            )
+
+            fotografiaCapturadaRepository.save(fotografiaCapturada)
+
+            // Actualizar progreso
+            progreso.fotografiasCapturadas++
+            progresoExploracionRepository.save(progreso)
+
+            // ⬇️ CALCULAR RECOMPENSAS REDUCIDAS (50% de las normales)
+            val recompensasNormales = calcularRecompensasFotografia(objetivo, objetivo.rareza)
+            val recompensasReducidas = recompensasNormales.map { recompensa ->
+                RecompensaDTO(
+                    tipo = recompensa.tipo,
+                    cantidad = recompensa.cantidad / 2,  // 50% de recompensa
+                    descripcion = "Completado manual (recompensa reducida)"
+                )
+            }
+
+            // Aplicar recompensas reducidas
+            //calcularRecompensasFotografia(progreso, recompensasReducidas)
+            verificarYDesbloquearSiguienteCapa(progreso)
+            MarcarObjetivoManualResponse(
+                exito = true,
+                mensaje = "Objetivo marcado como completado (recompensas reducidas por no usar IA)",
+                recompensas = recompensasReducidas
+            )
+
+        } catch (e: Exception) {
+            log.error("Error marcando objetivo manual: ${e.message}", e)
+            MarcarObjetivoManualResponse(
+                exito = false,
+                mensaje = "Error al marcar objetivo: ${e.message}",
+                recompensas = emptyList()
+            )
+        }
+    }
+
+    // ⬇️ MÉTODO SIMPLE
+    // ⬇️ REEMPLAZA TODO EL MÉTODO verificarYDesbloquearSiguienteCapa por ESTO:
+
+    private fun verificarYDesbloquearSiguienteCapa(progreso: ProgresoExploracion) {
+        try {
+            val capas = capaDescubrimientoRepository.findByProgresoOrderByNivelDesc(progreso)
+
+            for (i in 0 until capas.size - 1) {
+                val capaActual = capas[i]
+                val siguienteCapa = capas[i + 1]
+
+                // Si la capa actual está desbloqueada y tiene todas las fotos
+                if (capaActual.desbloqueada && todasLasFotosCapturadas(capaActual)) {
+
+                    // Desbloquear la siguiente si está cerrada
+                    if (!siguienteCapa.desbloqueada) {
+                        siguienteCapa.desbloqueada = true
+                        siguienteCapa.fechaDesbloqueo = LocalDateTime.now()
+                        capaDescubrimientoRepository.save(siguienteCapa)
+
+                        log.info("🔓 Capa ${siguienteCapa.nivel} desbloqueada")
+                        break
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            log.error("Error: ${e.message}")
+        }
+    }
+
+    // ⬇️ MÉTODO SIMPLE: Solo cuenta fotos
+    private fun todasLasFotosCapturadas(capa: CapaDescubrimiento): Boolean {
+        val capaId = capa.id
+        if (capaId == null) {
+            log.error("❌ Error: La capa no tiene ID asignado")
+            return false
+        }
+
+        log.info("📸 Verificando fotos para Capa Nivel: ${capa.nivel} (ID: $capaId)")
+
+        val objetivos = fotografiaObjetivoRepository.findByCapaTemporalId(capaId)
+        if (objetivos.isEmpty()) {
+            log.info("✅ No hay objetivos fotográficos en esta capa. Se marca como completa.")
+            return true
+        }
+
+        // Obtenemos el conteo
+        val capturadas: Long = fotografiaCapturadaRepository.countByProgresoAndObjetivoIn(capa.progreso, objetivos)
+        val totalNecesarias: Long = objetivos.size.toLong()
+
+        log.info("📊 Progreso de fotos: $capturadas de $totalNecesarias capturadas.")
+
+        // La comparación estándar entre Longs
+        val estaCompleta = capturadas >= totalNecesarias
+
+        if (estaCompleta) {
+            log.info("🎉 ¡Objetivo de fotos cumplido para la capa ${capa.nivel}!")
+        } else {
+            log.info("⏳ Aún faltan ${totalNecesarias - capturadas} fotos para completar la capa.")
+        }
+
+        return estaCompleta
+    }
+
+    // ⬇️ VERIFICAR SI ESTÁ COMPLETA
+//    private fun esCapaCompletada(capa: CapaDescubrimiento): Boolean {
+//        // 1. Narrativa leída?
+//
+//        // 2. Todas las fotos capturadas?
+//        val objetivos = fotografiaObjetivoRepository.findByCapaTemporalAndActivoTrue(capa)
+//
+//        if (objetivos.isNotEmpty()) {
+//            val fotografiasCapturadas = fotografiaCapturadaRepository
+//                .countByProgresoAndObjetivoIn(capa.progreso, objetivos)
+//
+//            if (fotografiasCapturadas < objetivos.size) return false
+//        }
+//
+//        // 3. (Opcional) Al menos 1 diálogo realizado?
+//        val dialogos = dialogoHistorialRepository.countByProgresoAndCapa(capa.progreso, capa)
+//        if (dialogos < 1) return false
+//
+//        return true
+//    }
 }

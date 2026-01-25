@@ -70,6 +70,16 @@ interface CapaDescubrimientoRepository : JpaRepository<CapaDescubrimiento, Long>
     fun countByProgresoAndDesbloqueadaTrue(
         progreso: ProgresoExploracion
     ): Long
+
+    // En CapaDescubrimientoRepository.kt
+    fun findByProgresoOrderByNivelAsc(progreso: ProgresoExploracion): List<CapaDescubrimiento>
+    fun findByProgresoOrderByNivelDesc(progreso: ProgresoExploracion): List<CapaDescubrimiento>
+
+    // En DialogoHistorialRepository.kt
+    //fun countByProgresoAndCapa(progreso: ProgresoExploracion, capa: CapaDescubrimiento): Long
+
+    // En FotografiaCapturadaRepository.kt
+    //fun countByProgresoAndObjetivoIn(progreso: ProgresoExploracion, objetivos: List<FotografiaObjetivo>): Long
 }
 
 // ========================================
@@ -124,6 +134,7 @@ interface FotografiaObjetivoRepository : JpaRepository<FotografiaObjetivo, Long>
     fun findByCapaTemporalId(capaTemporalId: Long): List<FotografiaObjetivo>
 
     fun findByPuntoInteresId(puntoInteresId: Long): List<FotografiaObjetivo>
+    //fun countByProgresoAndObjetivoIn(progreso: ProgresoExploracion, objetivos: List<FotografiaObjetivo>): Long
 
     fun findByNivelRequeridoLessThanEqualAndActivoTrue(
         nivel: com.tesis.gamificacion.model.enums.NivelCapa
@@ -176,6 +187,8 @@ interface FotografiaCapturadaRepository : JpaRepository<FotografiaCapturada, Lon
         progreso: ProgresoExploracion,
         rarezas: List<com.tesis.gamificacion.model.enums.RarezaFoto>
     ): List<FotografiaCapturada>
+
+    fun countByProgresoAndObjetivoIn(progreso: ProgresoExploracion, objetivos: List<FotografiaObjetivo>): Long
 }
 
 // ========================================

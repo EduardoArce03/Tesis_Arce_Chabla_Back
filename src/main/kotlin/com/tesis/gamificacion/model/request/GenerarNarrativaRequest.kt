@@ -1,6 +1,8 @@
 package com.tesis.gamificacion.model.request
 
 import com.tesis.gamificacion.model.enums.NivelCapa
+import jakarta.validation.constraints.NotNull
+import jakarta.validation.constraints.Positive
 
 data class GenerarNarrativaRequest(
     val jugadorId: String,
@@ -34,4 +36,20 @@ data class CompletarMisionRequest(
 
 data class IniciarExploracionRequest(
     val jugadorId: String
+)
+
+// En ExploracionDTOs.kt o similar
+
+data class MarcarObjetivoManualRequest(
+    @field:NotNull @field:Positive
+    val partidaId: Long,
+
+    @field:NotNull @field:Positive
+    val objetivoId: Long
+)
+
+data class MarcarObjetivoManualResponse(
+    val exito: Boolean,
+    val mensaje: String,
+    val recompensas: List<RecompensaDTO>
 )

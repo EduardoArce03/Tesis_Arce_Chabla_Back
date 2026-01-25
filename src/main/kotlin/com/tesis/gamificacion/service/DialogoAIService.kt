@@ -1,13 +1,12 @@
 package com.tesis.gamificacion.service
 
-import com.tesis.gamificacion.model.entities.CapaDescubrimiento
 import com.tesis.gamificacion.model.entities.DialogoHistorial
 import com.tesis.gamificacion.model.enums.NivelCapa
 import com.tesis.gamificacion.repository.CapaTemporalRepository
+import com.tesis.gamificacion.repository.PuntoInteresRepository
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.*
 import org.springframework.stereotype.Service
-import org.springframework.util.LinkedMultiValueMap
 import org.springframework.util.MultiValueMap
 import org.springframework.web.client.RestTemplate
 
@@ -16,7 +15,9 @@ class DialogoIAService(
     private val restTemplate: RestTemplate,
     private val capaTemporalRepository: CapaTemporalRepository, // ✅ AGREGAR ESTO
     @Value("\${ia.service.url}")
-    private val BASE_URL: String
+    private val BASE_URL: String,
+
+    private val puntoInteresRepository: PuntoInteresRepository
 ) {
 
 
@@ -24,43 +25,90 @@ class DialogoIAService(
      * Genera respuesta del espíritu usando IA
      */
     fun generarRespuestaEspiritu(
-        capa: CapaDescubrimiento,
+        capa: NivelCapa,  // ⬅️ Recibe solo el nivel
         pregunta: String,
         historialPrevio: List<DialogoHistorial>,
-        puntoInteresNombre: String? = null // ✅ AGREGAR PARÁMETRO OPCIONAL
+        puntoInteresNombre: String?,
+        puntoInteresId: Long? = null  // ⬅️ NUEVO: opcional
     ): String {
-        val url = "$BASE_URL/dialogo-espiritu"
-
-        // ✅ OBTENER CONFIGURACIÓN DEL ESPÍRITU DESDE CapaTemporal
-        val capaTemporal = capaTemporalRepository.findByNivel(capa.nivel).firstOrNull()
-
-        if (capaTemporal == null) {
-            return generarRespuestaFallbackSimple(capa.nivel, pregunta)
-        }
-
-        val body: MultiValueMap<String, Any> = LinkedMultiValueMap()
-
-        body.add("pregunta", pregunta)
-        body.add("nombre_espiritu", capaTemporal.nombreEspiritu)
-        body.add("epoca", capaTemporal.epocaEspiritu)
-        body.add("personalidad", capaTemporal.personalidadEspiritu)
-        body.add("prompt_espiritu", capaTemporal.promptEspiritu)
-        body.add("nivel_capa", capa.nivel.nombre)
-        body.add("punto_nombre", puntoInteresNombre ?: "sitio arqueológico")
-
-        // Contexto de conversaciones previas
-        val contexto = historialPrevio.takeLast(5).joinToString("\n") {
-            "Jugador: ${it.preguntaUsuario}\n${capaTemporal.nombreEspiritu}: ${it.respuestaEspiritu}"
-        }
-        body.add("contexto_previo", contexto)
 
         return try {
-            val response = ejecutarLlamadaIA(url, body, Map::class.java)
-            (response?.get("respuesta") as? String)
-                ?: generarRespuestaFallback(capaTemporal, pregunta)
+            println("🗣️ Generando respuesta del espíritu...")
+            println("   Nivel Capa: $capa")
+            println("   Punto: $puntoInteresNombre")
+            println("   Punto ID: $puntoInteresId")
+
+            // ⬇️ OBTENER URL DE LA IMAGEN DEL PUNTO DE INTERÉS
+            val imagenUrl = if (puntoInteresId != null) {
+                puntoInteresRepository.findById(puntoInteresId)
+                    .map { it.imagenUrl }
+                    .orElse("https://upload.wikimedia.org/wikipedia/commons/0/03/Ecuador_ingapirca_inca_ruins.jpg")
+            } else {
+                // Fallback a imagen genérica
+                "https://upload.wikimedia.org/wikipedia/commons/0/03/Ecuador_ingapirca_inca_ruins.jpg"
+            }
+
+            println("   Imagen URL: $imagenUrl")
+
+            // Preparar historial
+            val historialDTO = historialPrevio.map { dialogo ->
+                mapOf(
+                    "pregunta" to dialogo.preguntaUsuario,
+                    "respuesta" to dialogo.respuestaEspiritu
+                )
+            }
+
+            // ⬇️ REQUEST CON URL DE IMAGEN
+            val requestBody = mapOf(
+                "pregunta" to pregunta,
+                "nivelCapa" to capa.name,  // ⬅️ Usar el enum como String
+                "puntoInteresNombre" to (puntoInteresNombre ?: "Ingapirca"),
+                "imagenUrl" to imagenUrl,
+                "historialPrevio" to historialDTO
+            )
+
+            println("📤 Enviando a Python: $BASE_URL/dialogo-espiritu")
+
+            // Llamar al servicio Python
+            val response = restTemplate.postForObject(
+                "$BASE_URL/dialogo-espiritu",
+                requestBody,
+                Map::class.java
+            ) as? Map<String, Any> ?: throw RuntimeException("Respuesta vacía del servicio Python")
+
+            val respuesta = response["respuestaEspiritu"] as? String
+                ?: throw RuntimeException("El espíritu no generó respuesta")
+
+            println("✅ Respuesta recibida (${respuesta.length} chars): ${respuesta.take(100)}...")
+
+            respuesta
+
         } catch (e: Exception) {
-            println("❌ Error generando diálogo: ${e.message}")
-            generarRespuestaFallback(capaTemporal, pregunta)
+            println("❌ Error en servicio de IA: ${e.message}")
+            e.printStackTrace()
+            generarRespuestaFallback(capa, pregunta, puntoInteresNombre)
+        }
+    }
+
+    private fun generarRespuestaFallback(
+        nivel: NivelCapa,
+        pregunta: String,
+        puntoNombre: String?
+    ): String {
+        val punto = puntoNombre ?: "este lugar sagrado"
+
+        return when (nivel) {
+            NivelCapa.SUPERFICIE ->
+                "Bienvenido, explorador. Tu pregunta sobre $punto resuena en estas piedras ancestrales. Nuestros antepasados Cañari dejaron aquí su legado para las futuras generaciones."
+
+            NivelCapa.INCA ->
+                "Las piedras del Tawantinsuyu en $punto guardan muchos secretos. La unión entre la sabiduría Cañari e Inca creó este lugar extraordinario donde el cielo y la tierra se encuentran."
+
+            NivelCapa.CANARI ->
+                "Llacta ñawi... el ojo del pueblo observa en $punto. Los secretos de nuestra cultura Cañari se revelan a quienes caminan con respeto y corazón abierto por estos caminos ancestrales."
+
+            NivelCapa.ANCESTRAL ->
+                "Desde tiempos inmemoriales, $punto ha sido un nexo sagrado. Las estrellas y la Pachamama guardan las respuestas que buscas, tejidas en el gran tapiz del cosmos Cañari."
         }
     }
 

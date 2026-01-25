@@ -147,4 +147,15 @@ class ExploracionController(
         val resultado = exploracionService.completarMision(request)
         return ResponseEntity.ok(resultado)
     }
+
+    @PostMapping("/fotografia/marcar-manual")
+    fun marcarObjetivoManual(
+        @RequestBody request: MarcarObjetivoManualRequest
+    ): ResponseEntity<MarcarObjetivoManualResponse> {
+
+
+        val response = exploracionService.marcarObjetivoCompletadoManual(request)
+
+        return ResponseEntity.ok(response)
+    }
 }

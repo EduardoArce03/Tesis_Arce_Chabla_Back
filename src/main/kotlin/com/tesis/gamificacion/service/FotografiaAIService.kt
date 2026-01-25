@@ -22,43 +22,105 @@ class FotografiaIAService(
     /**
      * Analiza una foto usando IA
      */
+
+    private fun limpiarBase64(base64String: String): String {
+        // Si tiene el prefijo "data:image/...;base64,", removerlo
+        return if (base64String.contains(",")) {
+            base64String.substringAfter(",")
+        } else {
+            base64String
+        }
+    }
+
     fun analizarFotografia(
         objetivo: FotografiaObjetivo,
         imagenBase64: String,
         descripcionUsuario: String?
-    ): AnalisisFotoResult {
-        val url = "$BASE_URL/analizar-fotografia"
-
-        // Decodificar base64 a bytes
-        val imagenBytes = Base64.getDecoder().decode(imagenBase64)
-        val imagenResource = crearImagenResource(imagenBytes, "foto_captura.jpg")
-
-        val body: MultiValueMap<String, Any> = LinkedMultiValueMap()
-        body.add("image", imagenResource)
-        body.add("objetivo_descripcion", objetivo.descripcion)
-        body.add("criterios_validacion", objetivo.criteriosValidacion)
-        body.add("rareza_esperada", objetivo.rareza.name)
-        descripcionUsuario?.let { body.add("descripcion_usuario", it) }
+    ): FotoAnalisisResultado {
 
         return try {
-            val response = ejecutarLlamadaIA(url, body, Map::class.java)
+            println("📸 Analizando fotografía con LLaVA Cañari...")
+            println("   Objetivo: ${objetivo.descripcion}")
+            println("   Rareza esperada: ${objetivo.rareza}")
 
-            if (response != null) {
-                AnalisisFotoResult(
-                    esValida = response["es_valida"] as? Boolean ?: false,
-                    descripcionIA = response["descripcion"] as? String ?: "Foto analizada",
-                    cumpleCriterios = response["cumple_criterios"] as? Boolean ?: false,
-                    rarezaDetectada = objetivo.rareza,
-                    confianza = (response["confianza"] as? Number)?.toDouble() ?: 0.5
+            // 1. Limpiar base64
+            val base64Limpio = limpiarBase64(imagenBase64)
+
+            // 2. Decodificar a bytes
+            val imagenBytes = Base64.getDecoder().decode(base64Limpio)
+            println("   Tamaño imagen: ${imagenBytes.size} bytes")
+
+            // 3. Crear request multipart (Flask espera FormData)
+            val body = LinkedMultiValueMap<String, Any>()
+
+            // Agregar parámetros de texto
+            body.add("objetivoNombre", objetivo.puntoInteres.nombre)
+            body.add("objetivoDescripcion", objetivo.descripcion)
+            body.add("rarezaEsperada", objetivo.rareza.name)
+
+            // Agregar imagen como archivo
+            body.add("image", object : ByteArrayResource(imagenBytes) {
+                override fun getFilename(): String = "foto.jpg"
+            })
+
+            // 4. Configurar headers
+            val headers = HttpHeaders()
+            headers.contentType = MediaType.MULTIPART_FORM_DATA
+
+            val requestEntity = HttpEntity(body, headers)
+
+            // 5. Llamar al servicio Python
+            println("📤 Enviando a Python: $BASE_URL")
+
+            val response = restTemplate.exchange(
+                BASE_URL+"/analizar-fotografia",
+                HttpMethod.POST,
+                requestEntity,
+                Map::class.java
+            )
+
+            val responseBody = response.body as? Map<String, Any>
+                ?: throw IllegalStateException("Respuesta vacía del servicio de IA")
+
+            println("✅ Respuesta de IA recibida")
+            println("   Es válida: ${responseBody["esValida"]}")
+            println("   Cumple criterios: ${responseBody["cumpleCriterios"]}")
+
+            // 6. Mapear respuesta a FotoAnalisisResultado
+            FotoAnalisisResultado(
+                esValida = responseBody["esValida"] as? Boolean ?: false,
+                cumpleCriterios = responseBody["cumpleCriterios"] as? Boolean ?: false,
+                descripcionIA = responseBody["descripcionIA"] as? String
+                    ?: "No se pudo analizar la imagen",
+                confianza = (responseBody["confianza"] as? Number)?.toDouble() ?: 0.0,
+                rarezaDetectada = RarezaFoto.valueOf(
+                    responseBody["rarezaDetectada"] as? String ?: objetivo.rareza.name
                 )
-            } else {
-                generarAnalisisFallback(objetivo)
-            }
+            )
+
         } catch (e: Exception) {
-            println("❌ Error analizando foto: ${e.message}")
-            generarAnalisisFallback(objetivo)
+            println("❌ Error llamando al servicio de IA: ${e.message}")
+            e.printStackTrace()
+
+            // Fallback: devolver análisis fallido
+            FotoAnalisisResultado(
+                esValida = false,
+                cumpleCriterios = false,
+                descripcionIA = "Error al analizar la fotografía con IA: ${e.message}",
+                confianza = 0.0,
+                rarezaDetectada = objetivo.rareza
+            )
         }
     }
+
+// ⬇️ MODELO DE RESULTADO
+data class FotoAnalisisResultado(
+    val esValida: Boolean,
+    val cumpleCriterios: Boolean,
+    val descripcionIA: String,
+    val confianza: Double,
+    val rarezaDetectada: RarezaFoto
+)
 
     /**
      * Genera descripción de la foto capturada
