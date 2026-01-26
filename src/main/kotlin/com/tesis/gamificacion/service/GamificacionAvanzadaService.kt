@@ -28,8 +28,8 @@ class GamificacionAvanzadaService(
     fun inicializarEstadoPartida(partidaId: Long): EstadoPartida {
         val estado = EstadoPartida(
             partidaId = partidaId,
-            vidasActuales = 3,
-            vidasMaximas = 3,
+            vidasActuales = 5,
+            vidasMaximas = 10,
             hintsDisponibles = MAX_HINTS
         )
         return estadoPartidaRepository.save(estado)

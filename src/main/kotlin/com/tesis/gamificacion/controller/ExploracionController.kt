@@ -158,4 +158,13 @@ class ExploracionController(
 
         return ResponseEntity.ok(response)
     }
+
+    @GetMapping("/capas-punto/{partidaId}/{puntoId}")
+    fun obtenerCapasPorPunto(
+        @PathVariable partidaId: Long,
+        @PathVariable puntoId: Long
+    ): ResponseEntity<List<CapaPuntoDTO>> {
+        val capas = exploracionService.obtenerCapasPorPunto(partidaId, puntoId)
+        return ResponseEntity.ok(capas)
+    }
 }

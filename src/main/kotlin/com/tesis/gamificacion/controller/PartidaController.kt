@@ -8,17 +8,20 @@ import com.tesis.gamificacion.dto.response.PartidaResponse
 import com.tesis.gamificacion.dto.response.RankingResponse
 import com.tesis.gamificacion.model.enums.CategoriasCultural
 import com.tesis.gamificacion.model.enums.NivelDificultad
+import com.tesis.gamificacion.model.request.GuardarPartidaRequest
 import com.tesis.gamificacion.model.request.ProcesarErrorRequest
 import com.tesis.gamificacion.model.request.ProcesarParejaRequest
 import com.tesis.gamificacion.model.request.ResponderPreguntaRequest
 import com.tesis.gamificacion.model.request.SolicitarHintRequest
 import com.tesis.gamificacion.model.responses.FinalizarPartidaResponse
+import com.tesis.gamificacion.model.responses.PartidaResponse2
 import com.tesis.gamificacion.model.responses.ProcesarErrorResponse
 import com.tesis.gamificacion.model.responses.ProcesarParejaResponse
 import com.tesis.gamificacion.model.responses.ResponderPreguntaResponse
 import com.tesis.gamificacion.model.responses.SolicitarHintResponse
 import com.tesis.gamificacion.service.PartidaService
 import jakarta.validation.Valid
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
@@ -29,6 +32,8 @@ import org.springframework.web.bind.annotation.*
 class PartidaController(
     private val partidaService: PartidaService
 ) {
+
+    private val logger = LoggerFactory.getLogger(PartidaController::class.java)
 
     @PostMapping("/iniciar")
     fun iniciarPartida(
@@ -122,5 +127,39 @@ class PartidaController(
     @GetMapping("/ranking")
     fun obtenerRanking(@RequestParam(defaultValue = "10") limite: Int): ResponseEntity<List<RankingResponse>> {
         return ResponseEntity.ok(partidaService.obtenerRankingGlobal(limite))
+    }
+
+    @PostMapping
+    fun guardarPartida(
+        @Valid @RequestBody request: GuardarPartidaRequest
+    ): ResponseEntity<PartidaResponse2> {
+        logger.info("💾 Recibida solicitud para guardar partida")
+        logger.info("📋 Datos: {}", request)
+        logger.info("👤 Jugador ID: {}", request.jugadorId)
+        logger.info("🎯 Nivel: {}, Categoría: {}", request.nivel, request.categoria)
+        logger.info("⭐ Puntuación: {}, Intentos: {}", request.puntuacion, request.intentos)
+        logger.info("⏱️ Tiempo: {} segundos", request.tiempoSegundos)
+        logger.info("✅ Completada: {}", request.completada)
+
+        return try {
+            val partida = partidaService.guardarPartida(request)
+            logger.info("✅ Partida guardada exitosamente con ID: {}", partida.id)
+
+            ResponseEntity.ok(
+                PartidaResponse2(
+                    id = partida.id ?: 0,
+                    mensaje = "Partida guardada exitosamente"
+                )
+            )
+        } catch (e: Exception) {
+            logger.error("❌ Error al guardar partida: {}", e.message, e)
+            ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(
+                    PartidaResponse2(
+                        id = 0,
+                        mensaje = "Error al guardar partida: ${e.message}"
+                    )
+                )
+        } as ResponseEntity<PartidaResponse2>
     }
 }

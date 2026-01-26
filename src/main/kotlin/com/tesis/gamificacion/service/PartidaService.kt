@@ -13,6 +13,7 @@ import com.tesis.gamificacion.model.entities.Partida
 import com.tesis.gamificacion.model.enums.CategoriasCultural
 import com.tesis.gamificacion.model.enums.NivelDificultad
 import com.tesis.gamificacion.model.enums.TipoDialogo
+import com.tesis.gamificacion.model.request.GuardarPartidaRequest
 import com.tesis.gamificacion.model.request.ProcesarErrorRequest
 import com.tesis.gamificacion.model.request.ProcesarParejaRequest
 import com.tesis.gamificacion.model.request.ResponderPreguntaRequest
@@ -26,6 +27,7 @@ import com.tesis.gamificacion.model.responses.ProcesarParejaResponse
 import com.tesis.gamificacion.model.responses.ResponderPreguntaResponse
 import com.tesis.gamificacion.model.responses.SolicitarHintResponse
 import com.tesis.gamificacion.repository.PartidaRepository
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.LocalDateTime
@@ -39,6 +41,8 @@ class PartidaService(
     private val cacheLlamadaIAService: CacheLlamadaIAService
 
 ) {
+
+    private val logger = LoggerFactory.getLogger(PartidaService::class.java)
 
     @Transactional
     fun iniciarPartida(request: IniciarPartidaRequest): IniciarPartidaResponse {
@@ -373,6 +377,57 @@ class PartidaService(
         }
 
         return insignias
+    }
+
+    @Transactional
+    fun guardarPartida(request: GuardarPartidaRequest): Partida {
+        logger.info("💾 Guardando partida en la base de datos")
+        logger.info("📋 Request: {}", request)
+
+        // Validar que el jugador existe (opcional, pero recomendado)
+        // val jugador = jugadorRepository.findById(request.jugadorId.toLong())
+        //     .orElseThrow { IllegalArgumentException("Jugador no encontrado") }
+
+        val partida = Partida(
+            jugadorId = request.jugadorId,
+            nivel = request.nivel,
+            categoria = request.categoria,
+            puntuacion = request.puntuacion,
+            intentos = request.intentos,
+            tiempoSegundos = request.tiempoSegundos,
+            completada = request.completada,
+            fechaInicio = LocalDateTime.now().minusSeconds(request.tiempoSegundos.toLong()),
+            fechaFin = if (request.completada) LocalDateTime.now() else null
+        )
+
+        logger.info("🔨 Entidad Partida creada: {}", partida)
+
+        val partidaGuardada = try {
+            partidaRepository.save(partida)
+        } catch (e: Exception) {
+            logger.error("❌ Error al guardar en la BD: {}", e.message, e)
+            throw e
+        }
+
+        logger.info("✅ Partida guardada con ID: {}", partidaGuardada.id)
+        logger.info("📊 Datos guardados: Puntuación={}, Intentos={}, Tiempo={}s",
+            partidaGuardada.puntuacion,
+            partidaGuardada.intentos,
+            partidaGuardada.tiempoSegundos
+        )
+
+        return partidaGuardada
+    }
+
+    /**
+     * Obtener partidas de un jugador
+     */
+    @Transactional(readOnly = true)
+    fun obtenerPartidasDeJugador(jugadorId: String): List<Partida> {
+        logger.info("🔍 Buscando partidas del jugador: {}", jugadorId)
+        val partidas = partidaRepository.findByJugadorIdOrderByFechaInicioDesc(jugadorId)
+        logger.info("📊 Partidas encontradas: {}", partidas.size)
+        return partidas
     }
 
     private fun Partida.toResponse() = PartidaResponse(

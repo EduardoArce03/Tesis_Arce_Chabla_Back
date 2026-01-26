@@ -28,6 +28,7 @@ class ExploracionService(
     private val misionService: MisionService,
     private val puntoDescubrimientoRepository: PuntoDescubrimientoRepository,
     private val usuarioArtefactoRepository: UsuarioArtefactoRepository,
+    private val capaTemporalRepository: CapaTemporalRepository
 ) {
 
     private val log = LoggerFactory.getLogger(ExploracionService::class.java)
@@ -56,7 +57,10 @@ class ExploracionService(
         val progresoGuardado = progresoExploracionRepository.save(progreso)
         inicializarCapas(progresoGuardado)
         misionService.generarMisionesIniciales(partidaId)
-
+        val puntos = puntoInteresRepository.findByActivoTrue()
+        puntos.forEach { punto ->
+            asegurarCapasTemporalesExisten(punto)
+        }
         return construirProgresoResponse(progresoGuardado)
     }
 
@@ -173,6 +177,8 @@ class ExploracionService(
             )
         }
 
+        //inicializarCapasTemporalesPunto(progreso, punto)
+
         // Primer descubrimiento
         val nivelDescubrimiento = determinarNivelDescubrimiento(punto, progreso)
 
@@ -203,7 +209,7 @@ class ExploracionService(
         val nuevaCapaDesbloqueada = verificarDesbloqueoCapas(progreso)
 
         progresoExploracionRepository.save(progreso)
-        verificarYDesbloquearSiguienteCapa(progreso)
+        //verificarYDesbloquearSiguienteCapa(progreso)
         return DescubrimientoPuntoResponse(
             puntoId = punto.id!!,
             nombrePunto = punto.nombre,
@@ -214,6 +220,7 @@ class ExploracionService(
             nuevaCapaDesbloqueada = nuevaCapaDesbloqueada
         )
     }
+
 
     private fun determinarNivelDescubrimiento(punto: PuntoInteres, progreso: ProgresoExploracion): NivelCapa {
         // Determinar en qué nivel se descubre basado en el progreso actual
@@ -416,7 +423,7 @@ class ExploracionService(
 
             // Verificar si completa alguna misión
             misionService.verificarProgresoMisionesFotografia(request.partidaId, objetivo)
-            verificarYDesbloquearSiguienteCapa(progreso)
+            //verificarYDesbloquearSiguienteCapa(progreso)
             CapturarFotografiaResponse(
                 exito = true,
                 mensaje = "¡Fotografía capturada exitosamente!",
@@ -527,7 +534,7 @@ class ExploracionService(
 
         return try {
             val progreso = obtenerProgreso(request.partidaId)
-            verificarYDesbloquearSiguienteCapa(progreso)
+            //verificarYDesbloquearSiguienteCapa(progreso)
             // Buscamos la capa, si no existe lanzamos error específico
             val capa = capaDescubrimientoRepository.findByProgresoAndNivel(progreso, request.nivelCapa)
                 ?: throw NoSuchElementException("No se encontró la capa de descubrimiento nivel ${request.nivelCapa}")
@@ -794,6 +801,169 @@ class ExploracionService(
         }
     }
 
+    private fun asegurarCapasTemporalesExisten(punto: PuntoInteres) {
+        val capasExistentes = capaTemporalRepository.findByPuntoInteresOrderByNivelAsc(punto)
+
+        if (capasExistentes.size == 4) {
+            // Ya existen las 4 capas
+            return
+        }
+
+        // Crear las capas que faltan
+        NivelCapa.entries.forEach { nivel ->
+            val yaExiste = capasExistentes.any { it.nivel == nivel }
+
+            if (!yaExiste) {
+                val capa = CapaTemporal(
+                    puntoInteres = punto,
+                    nivel = nivel,
+                    narrativaBase = "Narrativa de ${punto.nombre} - ${nivel.nombre}",
+                    promptNarrativa = "Genera narrativa para ${punto.nombre}",
+                    nombreEspiritu = obtenerNombreEspiritu(nivel),
+                    nombreEspirituKichwa = obtenerNombreEspirituKichwa(nivel),
+                    epocaEspiritu = obtenerEpoca(nivel),
+                    personalidadEspiritu = obtenerPersonalidad(nivel),
+                    promptEspiritu = "Eres un espíritu de la época ${nivel.nombre}"
+                )
+                capaTemporalRepository.save(capa)
+                log.info("✅ Creada CapaTemporal: ${nivel.nombre} para punto ${punto.nombre}")
+            }
+        }
+    }
+
+    private fun obtenerNombreEspiritu(nivel: NivelCapa): String {
+        return when (nivel) {
+            NivelCapa.SUPERFICIE -> "Guardián de la Superficie"
+            NivelCapa.INCA -> "Espíritu del Inti"
+            NivelCapa.CANARI -> "Amawta Cañari"
+            NivelCapa.ANCESTRAL -> "Espíritu Primordial"
+        }
+    }
+
+    private fun obtenerNombreEspirituKichwa(nivel: NivelCapa): String {
+        return when (nivel) {
+            NivelCapa.SUPERFICIE -> "Ñawpa Rikuq"
+            NivelCapa.INCA -> "Inti Yaya"
+            NivelCapa.CANARI -> "Hatun Yachaq"
+            NivelCapa.ANCESTRAL -> "Ñawpa Pacha"
+        }
+    }
+
+    private fun obtenerEpoca(nivel: NivelCapa): String {
+        return when (nivel) {
+            NivelCapa.SUPERFICIE -> "Actualidad"
+            NivelCapa.INCA -> "1450-1532 d.C."
+            NivelCapa.CANARI -> "500-1450 d.C."
+            NivelCapa.ANCESTRAL -> "Antes del 500 d.C."
+        }
+    }
+
+    private fun obtenerPersonalidad(nivel: NivelCapa): String {
+        return when (nivel) {
+            NivelCapa.SUPERFICIE -> "Amigable y acogedor"
+            NivelCapa.INCA -> "Sabio y ceremonioso"
+            NivelCapa.CANARI -> "Misterioso y ancestral"
+            NivelCapa.ANCESTRAL -> "Místico y poético"
+        }
+    }
+
+    fun obtenerCapasPorPunto(partidaId: Long, puntoId: Long): List<CapaPuntoDTO> {
+        val progreso = obtenerProgreso(partidaId)
+        val punto = puntoInteresRepository.findById(puntoId)
+            .orElseThrow { IllegalArgumentException("Punto no encontrado") }
+        asegurarCapasTemporalesExisten(punto)
+
+        val capasTemplates = capaTemporalRepository.findByPuntoInteresOrderByNivelAsc(punto)
+
+        return capasTemplates.mapIndexed { index, capa ->
+            // Obtener objetivos fotográficos
+            val objetivos = capa.objetivosFotograficos.filter { it.activo }
+            val capturadas = fotografiaCapturadaRepository.countByProgresoAndObjetivoIn(progreso, objetivos)
+
+            // Calcular desbloqueo
+            val desbloqueada = if (index == 0) {
+                true
+            } else {
+                val capaAnterior = capasTemplates[index - 1]
+                val objetivosAnterior = capaAnterior.objetivosFotograficos.filter { it.activo }
+                val capturadasAnterior = fotografiaCapturadaRepository.countByProgresoAndObjetivoIn(
+                    progreso,
+                    objetivosAnterior
+                )
+                capturadasAnterior >= objetivosAnterior.size.toLong()
+            }
+
+            // Calcular porcentaje de completitud
+            val porcentaje = if (objetivos.isNotEmpty()) {
+                (capturadas.toDouble() / objetivos.size) * 100
+            } else {
+                0.0
+            }
+
+            // Determinar nivel de descubrimiento
+            val nivelDescubrimiento = when {
+                !desbloqueada -> NivelDescubrimiento.NO_VISITADO
+                porcentaje >= 100.0 -> NivelDescubrimiento.ORO
+                porcentaje >= 66.0 -> NivelDescubrimiento.PLATA
+                porcentaje >= 33.0 -> NivelDescubrimiento.BRONCE
+                else -> NivelDescubrimiento.NO_VISITADO
+            }
+
+            // Fotografías pendientes
+            val fotografiasPendientes = objetivos
+                .filter { objetivo ->
+                    !fotografiaCapturadaRepository.existsByProgresoAndObjetivo(progreso, objetivo)
+                }
+                .map { objetivo ->
+                    FotografiaObjetivoSimpleDTO(
+                        id = objetivo.id!!,
+                        descripcion = objetivo.descripcion,
+                        rareza = objetivo.rareza.name,
+                        //puntosRecompensa = calcularPuntosObjetivo(objetivo.rareza),
+                        completada = true
+                    )
+                }
+
+            //val misionCompletada = capa.mision?. == EstadoMision.COMPLETADA
+
+            // Recompensa final si completó todo
+            val recompensaFinal = if (porcentaje >= 100.0) {
+                val puntosRecompensa = when (capa.nivel) {
+                    NivelCapa.SUPERFICIE -> 50
+                    NivelCapa.INCA -> 100
+                    NivelCapa.CANARI -> 200
+                    NivelCapa.ANCESTRAL -> 500
+                }
+                RecompensaDTO(
+                    tipo = "PUNTOS",
+                    cantidad = puntosRecompensa,
+                    descripcion = "Completaste la capa ${capa.nivel.nombre}"
+                )
+            } else null
+
+            CapaPuntoDTO(
+                nivelCapa = capa.nivel,
+                nombre = capa.nivel.nombre,
+                descripcion = capa.nivel.descripcion,
+                desbloqueada = desbloqueada,
+                nivelDescubrimiento = nivelDescubrimiento,
+                porcentajeCompletitud = porcentaje,
+                narrativaLeida = false, // No se guarda, siempre false
+                narrativaTexto = if (desbloqueada) capa.narrativaBase else null,
+                fotografiasRequeridas = objetivos.size,
+                fotografiasCompletadas = capturadas.toInt(),
+                fotografiasPendientes = fotografiasPendientes,
+                dialogosRealizados = 0, // No se guarda por capa-punto
+                tieneDialogoDisponible = desbloqueada,
+                misionAsociada = null,
+                misionCompletada = true,
+                puntosGanados = 0, // O calcularlo sumando puntos de fotos capturadas
+                recompensaFinal = recompensaFinal
+            )
+        }
+    }
+
+
     /**
      * Obtener historial de diálogos
      */
@@ -895,7 +1065,7 @@ class ExploracionService(
 
             // Aplicar recompensas reducidas
             //calcularRecompensasFotografia(progreso, recompensasReducidas)
-            verificarYDesbloquearSiguienteCapa(progreso)
+            //verificarYDesbloquearSiguienteCapa(progreso)
             MarcarObjetivoManualResponse(
                 exito = true,
                 mensaje = "Objetivo marcado como completado (recompensas reducidas por no usar IA)",
@@ -915,32 +1085,32 @@ class ExploracionService(
     // ⬇️ MÉTODO SIMPLE
     // ⬇️ REEMPLAZA TODO EL MÉTODO verificarYDesbloquearSiguienteCapa por ESTO:
 
-    private fun verificarYDesbloquearSiguienteCapa(progreso: ProgresoExploracion) {
-        try {
-            val capas = capaDescubrimientoRepository.findByProgresoOrderByNivelDesc(progreso)
-
-            for (i in 0 until capas.size - 1) {
-                val capaActual = capas[i]
-                val siguienteCapa = capas[i + 1]
-
-                // Si la capa actual está desbloqueada y tiene todas las fotos
-                if (capaActual.desbloqueada && todasLasFotosCapturadas(capaActual)) {
-
-                    // Desbloquear la siguiente si está cerrada
-                    if (!siguienteCapa.desbloqueada) {
-                        siguienteCapa.desbloqueada = true
-                        siguienteCapa.fechaDesbloqueo = LocalDateTime.now()
-                        capaDescubrimientoRepository.save(siguienteCapa)
-
-                        log.info("🔓 Capa ${siguienteCapa.nivel} desbloqueada")
-                        break
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            log.error("Error: ${e.message}")
-        }
-    }
+//    private fun verificarYDesbloquearSiguienteCapa(progreso: ProgresoExploracion) {
+//        try {
+//            val capas = capaDescubrimientoRepository.findByProgresoOrderByNivelDesc(progreso)
+//
+//            for (i in 0 until capas.size - 1) {
+//                val capaActual = capas[i]
+//                val siguienteCapa = capas[i + 1]
+//
+//                // Si la capa actual está desbloqueada y tiene todas las fotos
+//                if (capaActual.desbloqueada && todasLasFotosCapturadas(capaActual)) {
+//
+//                    // Desbloquear la siguiente si está cerrada
+//                    if (!siguienteCapa.desbloqueada) {
+//                        siguienteCapa.desbloqueada = true
+//                        siguienteCapa.fechaDesbloqueo = LocalDateTime.now()
+//                        capaDescubrimientoRepository.save(siguienteCapa)
+//
+//                        log.info("🔓 Capa ${siguienteCapa.nivel} desbloqueada")
+//                        break
+//                    }
+//                }
+//            }
+//        } catch (e: Exception) {
+//            log.error("Error: ${e.message}")
+//        }
+//    }
 
     // ⬇️ MÉTODO SIMPLE: Solo cuenta fotos
     private fun todasLasFotosCapturadas(capa: CapaDescubrimiento): Boolean {
