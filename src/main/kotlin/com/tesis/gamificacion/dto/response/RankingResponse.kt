@@ -11,5 +11,6 @@ data class RankingResponse(
     val nivel: NivelDificultad,
     val categoria: CategoriasCultural,
     val tiempoSegundos: Int,
-    val fecha: LocalDateTime
+    val fecha: LocalDateTime,
+    val nombreJugador: String,
 )

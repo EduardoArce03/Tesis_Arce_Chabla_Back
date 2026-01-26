@@ -12,6 +12,7 @@ import com.tesis.gamificacion.model.enums.NivelCapa
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
 import org.springframework.stereotype.Repository
+import java.util.Optional
 
 @Repository
 interface PuntoInteresRepository : JpaRepository<PuntoInteres, Long> {
@@ -49,6 +50,7 @@ interface ProgresoExploracionRepository : JpaRepository<ProgresoExploracion, Lon
     fun findByPartidaId(partidaId: Long): ProgresoExploracion?
     fun existsByUsuarioId(usuarioId: Long): Boolean
     fun existsByPartidaId(partidaId: Long): Boolean
+    fun findByPartidaIdAndUsuarioId(partidaId: Long, usuarioId: Long): Optional<ProgresoExploracion>
 }
 
 // ========================================

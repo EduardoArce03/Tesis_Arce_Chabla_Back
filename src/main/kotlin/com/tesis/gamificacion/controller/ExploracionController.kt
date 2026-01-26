@@ -60,9 +60,10 @@ class ExploracionController(
     @GetMapping("/puntos/{puntoId}/capas")
     fun obtenerCapasPunto(
         @PathVariable puntoId: Long,
-        @RequestParam partidaId: Long
+        @RequestParam partidaId: Long,
+        @RequestParam usuarioId: Long
     ): ResponseEntity<List<CapaPuntoDTO>> {
-        val capas = exploracionCapasService.obtenerCapasPunto(puntoId, partidaId)
+        val capas = exploracionCapasService.obtenerCapasPunto(puntoId, partidaId, usuarioId)
         return ResponseEntity.ok(capas)
     }
 

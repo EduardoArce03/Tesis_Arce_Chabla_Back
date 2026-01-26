@@ -35,20 +35,38 @@ class ExploracionCapasService(
     /**
      * Obtener todas las capas de un punto específico con su progreso
      */
-    fun obtenerCapasPunto(puntoId: Long, partidaId: Long): List<CapaPuntoDTO> {
+    fun obtenerCapasPunto(puntoId: Long, partidaId: Long, usuarioId: Long): List<CapaPuntoDTO> {
+        logger.info("🔍 obtenerCapasPunto - Punto: $puntoId, Partida: $partidaId, Usuario: $usuarioId")
+
         val punto = puntoInteresRepository.findById(puntoId)
-            .orElseThrow { IllegalArgumentException("Punto no encontrado") }
+            .orElseThrow {
+                logger.error("❌ Punto $puntoId no encontrado")
+                IllegalArgumentException("Punto no encontrado")
+            }
 
-        val progreso = progresoExploracionRepository.findByPartidaId(partidaId)
-            ?: throw IllegalArgumentException("Progreso no encontrado")
+        logger.info("✅ Punto encontrado: ${punto.nombre}")
 
-        // Obtener capas globales desbloqueadas
+        val progreso = progresoExploracionRepository.findByPartidaIdAndUsuarioId(partidaId, usuarioId)
+            .orElseThrow {
+                logger.error("❌ Progreso NO encontrado para Partida: $partidaId, Usuario: $usuarioId")
+                throw IllegalArgumentException("Progreso no encontrado para usuario $usuarioId")
+            }
+
+        logger.info("✅ Progreso encontrado ID: ${progreso.id}")
+
         val capasGlobales = capaDescubrimientoRepository.findByProgreso(progreso)
+        logger.info("📋 Capas globales encontradas: ${capasGlobales.size}")
+        capasGlobales.forEach {
+            logger.info("   - ${it.nivel.nombre}: desbloqueada=${it.desbloqueada}")
+        }
 
-        // Crear DTO para cada capa temporal
-        return NivelCapa.entries.map { nivelCapa ->
+        val resultado = NivelCapa.entries.map { nivelCapa ->
             construirCapaPuntoDTO(punto, nivelCapa, progreso, capasGlobales)
         }
+
+        logger.info("✅ Devolviendo ${resultado.size} capas")
+
+        return resultado
     }
 
     /**

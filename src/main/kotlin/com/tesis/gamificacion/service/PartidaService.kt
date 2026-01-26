@@ -27,6 +27,7 @@ import com.tesis.gamificacion.model.responses.ProcesarParejaResponse
 import com.tesis.gamificacion.model.responses.ResponderPreguntaResponse
 import com.tesis.gamificacion.model.responses.SolicitarHintResponse
 import com.tesis.gamificacion.repository.PartidaRepository
+import com.tesis.gamificacion.repository.UsuarioRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -38,7 +39,8 @@ class PartidaService(
     private val elementoCulturalService: ElementoCulturalService,
     private val gamificacionService: GamificacionService,
     private val gamificacionAvanzadaService: GamificacionAvanzadaService,
-    private val cacheLlamadaIAService: CacheLlamadaIAService
+    private val cacheLlamadaIAService: CacheLlamadaIAService,
+    private val usuarioRepository: UsuarioRepository
 
 ) {
 
@@ -282,7 +284,10 @@ class PartidaService(
     fun obtenerRankingGlobal(limite: Int = 10): List<RankingResponse> {
         val partidas = partidaRepository.findTopScores(limite)
 
+        val usuario = usuarioRepository
+
         return partidas.mapIndexed { index, partida ->
+            val usuario =usuarioRepository.findById(partida.jugadorId.toLong()).orElse(null)
             RankingResponse(
                 posicion = index + 1,
                 jugadorId = partida.jugadorId,
@@ -290,7 +295,8 @@ class PartidaService(
                 nivel = partida.nivel,
                 categoria = partida.categoria,
                 tiempoSegundos = partida.tiempoSegundos,
-                fecha = partida.fechaFin ?: partida.fechaInicio
+                fecha = partida.fechaFin ?: partida.fechaInicio,
+                nombreJugador = usuario.nombre
             )
         }
     }
@@ -304,7 +310,10 @@ class PartidaService(
         val partidas = partidaRepository.findTopScoresByNivelAndCategoria(nivel, categoria)
             .take(limite)
 
+
+
         return partidas.mapIndexed { index, partida ->
+            val usuario = usuarioRepository.findById(partida.jugadorId.toLong()).orElse(null)
             RankingResponse(
                 posicion = index + 1,
                 jugadorId = partida.jugadorId,
@@ -312,7 +321,8 @@ class PartidaService(
                 nivel = partida.nivel,
                 categoria = partida.categoria,
                 tiempoSegundos = partida.tiempoSegundos,
-                fecha = partida.fechaFin ?: partida.fechaInicio
+                fecha = partida.fechaFin ?: partida.fechaInicio,
+                nombreJugador = usuario.nombre
             )
         }
     }
