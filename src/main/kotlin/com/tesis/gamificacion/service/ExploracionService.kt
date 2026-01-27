@@ -258,13 +258,62 @@ class ExploracionService(
             )
         }
 
+        // Variables para el resultado
+        var descripcionIA = "Fotografía validada manualmente"
+        var validadaPorIA = false
+        var puntosGanados = 10 // Manual = menos puntos
+
+        // Si hay imagen, validar con IA
+        if (!request.imagenBase64.isNullOrBlank()) {
+            try {
+                log.info("🤖 Validando fotografía con IA...")
+
+                val resultadoIA = dialogoIAService.analizarFotografia(
+                    imagenBase64 = request.imagenBase64,
+                    objetivoNombre = objetivo.descripcion,
+                    objetivoDescripcion = objetivo.descripcion,
+                    rarezaEsperada = ""
+                )
+
+                log.info("🤖 Resultado IA: válida=${resultadoIA.esValida}, cumple=${resultadoIA.cumpleCriterios}, confianza=${resultadoIA.confianza}")
+
+                descripcionIA = resultadoIA.descripcionIA
+                validadaPorIA = resultadoIA.esValida && resultadoIA.cumpleCriterios
+
+                // Si la IA rechaza la foto
+                if (!validadaPorIA) {
+                    return CapturarFotoResponse(
+                        exito = false,
+                        mensaje = "La fotografía no cumple con el objetivo",
+                        fotografiasCompletadas = progreso.fotografiasCompletadas,
+                        fotografiasRequeridas = progreso.fotografiasRequeridas,
+                        descripcionIA = descripcionIA
+                    )
+                }
+
+                // Puntos según confianza de la IA
+                puntosGanados = when {
+                    resultadoIA.confianza >= 0.9 -> 50
+                    resultadoIA.confianza >= 0.7 -> 35
+                    else -> 25
+                }
+
+            } catch (e: Exception) {
+                log.error("❌ Error en validación IA: ${e.message}")
+                // Continuar sin validación IA (modo manual)
+                descripcionIA = "Error en validación IA: ${e.message}"
+                validadaPorIA = false
+                puntosGanados = 10
+            }
+        }
+
         // Guardar fotografía
         val foto = FotografiaCapturada(
             progresoCapa = progreso,
             objetivoId = objetivo.id,
             imagenBase64 = request.imagenBase64,
-            descripcionIA = "Fotografía validada",
-            validadaPorIA = request.imagenBase64 != null
+            descripcionIA = descripcionIA,
+            validadaPorIA = validadaPorIA
         )
         fotografiaCapturadaRepository.save(foto)
 
@@ -274,7 +323,7 @@ class ExploracionService(
 
         // Actualizar contador global
         partida.fotografiasCapturadas++
-        partida.puntuacionTotal += if (request.imagenBase64 != null) 25 else 10
+        partida.puntuacionTotal += puntosGanados
         partidaRepository.save(partida)
 
         log.info("✅ Fotografía capturada: ${progreso.fotografiasCompletadas}/${progreso.fotografiasRequeridas}")
@@ -282,18 +331,13 @@ class ExploracionService(
         // Verificar completitud
         verificarCompletitudCapa(progreso, partida)
 
-        val fotoBase64 = this.convertirUrlABase64(request.imagenBase64)
-
-        val analisisFotografia = fotografiaIAService.analizarFotografia(fotoBase64,null)
-
         return CapturarFotoResponse(
             exito = true,
-            mensaje = "¡Fotografía capturada!",
+            mensaje = if (validadaPorIA) "¡Fotografía capturada con validación IA!" else "¡Fotografía capturada!",
             fotografiasCompletadas = progreso.fotografiasCompletadas,
             fotografiasRequeridas = progreso.fotografiasRequeridas,
-            puntos = if (request.imagenBase64 != null) 25 else 10,
-            fotografiaValida = analisisFotografia.esValida,
-            descripcionIA = analisisFotografia.descripcionIA
+            puntos = puntosGanados,
+            descripcionIA = descripcionIA
         )
     }
 

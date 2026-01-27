@@ -3,11 +3,15 @@ package com.tesis.gamificacion.service
 import com.tesis.gamificacion.model.entities.DialogoHistorial
 import com.tesis.gamificacion.model.enums.CapaNivel
 import com.tesis.gamificacion.model.enums.NivelCapa
+import com.tesis.gamificacion.model.enums.RarezaFoto
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.core.io.ByteArrayResource
 import org.springframework.http.*
 import org.springframework.stereotype.Service
+import org.springframework.util.LinkedMultiValueMap
 import org.springframework.util.MultiValueMap
 import org.springframework.web.client.RestTemplate
+import java.util.Base64
 
 @Service
 class DialogoIAService(
@@ -16,6 +20,122 @@ class DialogoIAService(
     private val BASE_URL: String,
 
 ) {
+
+    fun analizarFotografia(
+        imagenBase64: String?,
+        objetivoNombre: String,
+        objetivoDescripcion: String,
+        rarezaEsperada: String
+    ): FotografiaIAService.FotoAnalisisResultado {
+
+        return try {
+            println("📸 Analizando fotografía con LLaVA Cañari...")
+            println("   Objetivo: $objetivoNombre")
+            println("   Descripción: $objetivoDescripcion")
+            println("   Rareza esperada: $rarezaEsperada")
+
+            if (imagenBase64.isNullOrBlank()) {
+                throw IllegalArgumentException("La imagen Base64 está vacía")
+            }
+
+            // 1. Limpiar base64 (remover prefijos como "data:image/jpeg;base64,")
+            val base64Limpio = imagenBase64
+                .replace("data:image/jpeg;base64,", "")
+                .replace("data:image/png;base64,", "")
+                .replace("data:image/webp;base64,", "")
+                .replace("\n", "")
+                .replace("\r", "")
+                .trim()
+
+            println("   Base64 limpio: ${base64Limpio.take(50)}... (${base64Limpio.length} chars)")
+
+            // 2. Decodificar a bytes
+            val imagenBytes = try {
+                Base64.getDecoder().decode(base64Limpio)
+            } catch (e: IllegalArgumentException) {
+                throw IllegalArgumentException("Error decodificando Base64: ${e.message}")
+            }
+
+            if (imagenBytes.isEmpty()) {
+                throw IllegalStateException("La imagen decodificada tiene 0 bytes")
+            }
+
+            println("   ✅ Imagen decodificada: ${imagenBytes.size} bytes")
+
+            // 3. Crear ByteArrayResource con nombre de archivo
+            val imageResource = object : ByteArrayResource(imagenBytes) {
+                override fun getFilename(): String = "foto.jpg"
+            }
+
+            // 4. Crear request multipart
+            val body = LinkedMultiValueMap<String, Any>()
+            body.add("image", imageResource)
+            body.add("objetivoNombre", objetivoNombre)
+            body.add("objetivoDescripcion", objetivoDescripcion)
+            body.add("rarezaEsperada", rarezaEsperada)
+
+            // 5. Configurar headers
+            val headers = HttpHeaders()
+            headers.contentType = MediaType.MULTIPART_FORM_DATA
+
+            val requestEntity = HttpEntity(body, headers)
+
+            // 6. Llamar al servicio Python
+            val url = "$BASE_URL/analizar-fotografia"
+            println("📤 Enviando a Python: $url")
+
+            val response = restTemplate.exchange(
+                url,
+                HttpMethod.POST,
+                requestEntity,
+                Map::class.java
+            )
+
+            val responseBody = response.body as? Map<String, Any>
+                ?: throw IllegalStateException("Respuesta vacía del servicio de IA")
+
+            println("✅ Respuesta de IA recibida:")
+            println("   Es válida: ${responseBody["esValida"]}")
+            println("   Cumple criterios: ${responseBody["cumpleCriterios"]}")
+            println("   Confianza: ${responseBody["confianza"]}")
+
+            // 7. Verificar si hubo error en Python
+            val exito = responseBody["exito"] as? Boolean ?: false
+            if (!exito) {
+                val errorMsg = responseBody["error"] as? String ?: "Error desconocido"
+                throw Exception("Error en servicio Python: $errorMsg")
+            }
+
+            // 8. Mapear respuesta
+            FotografiaIAService.FotoAnalisisResultado(
+                esValida = responseBody["esValida"] as? Boolean ?: false,
+                cumpleCriterios = responseBody["cumpleCriterios"] as? Boolean ?: false,
+                descripcionIA = responseBody["descripcionIA"] as? String
+                    ?: "No se pudo analizar la imagen",
+                confianza = (responseBody["confianza"] as? Number)?.toDouble() ?: 0.0,
+                rarezaDetectada = try {
+                    RarezaFoto.valueOf(
+                        (responseBody["rarezaDetectada"] as? String ?: rarezaEsperada).uppercase()
+                    )
+                } catch (e: Exception) {
+                    RarezaFoto.COMUN
+                }
+            )
+
+        } catch (e: Exception) {
+            println("❌ Error llamando al servicio de IA: ${e.message}")
+            e.printStackTrace()
+
+            // Fallback: devolver análisis fallido
+            FotografiaIAService.FotoAnalisisResultado(
+                esValida = false,
+                cumpleCriterios = false,
+                descripcionIA = "Error al analizar la fotografía con IA: ${e.message}",
+                confianza = 0.0,
+                rarezaDetectada = RarezaFoto.COMUN
+            )
+        }
+    }
 
 
     /**
