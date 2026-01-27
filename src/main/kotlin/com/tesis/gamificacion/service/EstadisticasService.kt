@@ -90,7 +90,7 @@ class EstadisticasService(
                 id = partida.id ?: 0,
                 fechaInicio = partida.fechaInicio,
                 nivel = partida.nivel,
-                categoria = partida.categoria,
+                categoria = partida.categoria!!,
                 puntuacion = partida.puntuacion,
                 intentos = partida.intentos,
                 tiempoSegundos = partida.tiempoSegundos,

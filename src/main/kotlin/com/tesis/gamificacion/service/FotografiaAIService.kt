@@ -1,6 +1,5 @@
 package com.tesis.gamificacion.service
 
-import com.tesis.gamificacion.model.entities.FotografiaObjetivo
 import com.tesis.gamificacion.model.enums.RarezaFoto
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.core.io.ByteArrayResource
@@ -33,18 +32,17 @@ class FotografiaIAService(
     }
 
     fun analizarFotografia(
-        objetivo: FotografiaObjetivo,
-        imagenBase64: String,
+        imagenBase64: String?,
         descripcionUsuario: String?
     ): FotoAnalisisResultado {
 
         return try {
             println("📸 Analizando fotografía con LLaVA Cañari...")
-            println("   Objetivo: ${objetivo.descripcion}")
-            println("   Rareza esperada: ${objetivo.rareza}")
+            println("   Objetivo: ")
+            println("   Rareza esperada: ")
 
             // 1. Limpiar base64
-            val base64Limpio = limpiarBase64(imagenBase64)
+            val base64Limpio = limpiarBase64(imagenBase64 ?: "")
 
             // 2. Decodificar a bytes
             val imagenBytes = Base64.getDecoder().decode(base64Limpio)
@@ -54,9 +52,9 @@ class FotografiaIAService(
             val body = LinkedMultiValueMap<String, Any>()
 
             // Agregar parámetros de texto
-            body.add("objetivoNombre", objetivo.puntoInteres.nombre)
-            body.add("objetivoDescripcion", objetivo.descripcion)
-            body.add("rarezaEsperada", objetivo.rareza.name)
+            body.add("objetivoNombre", "")
+            body.add("objetivoDescripcion", "")
+            body.add("rarezaEsperada", "")
 
             // Agregar imagen como archivo
             body.add("image", object : ByteArrayResource(imagenBytes) {
@@ -94,7 +92,7 @@ class FotografiaIAService(
                     ?: "No se pudo analizar la imagen",
                 confianza = (responseBody["confianza"] as? Number)?.toDouble() ?: 0.0,
                 rarezaDetectada = RarezaFoto.valueOf(
-                    responseBody["rarezaDetectada"] as? String ?: objetivo.rareza.name
+                    responseBody["rarezaDetectada"] as? String ?: "objetivo.rareza.name"
                 )
             )
 
@@ -108,7 +106,7 @@ class FotografiaIAService(
                 cumpleCriterios = false,
                 descripcionIA = "Error al analizar la fotografía con IA: ${e.message}",
                 confianza = 0.0,
-                rarezaDetectada = objetivo.rareza
+                rarezaDetectada = RarezaFoto.RARA
             )
         }
     }
@@ -179,12 +177,12 @@ data class FotoAnalisisResultado(
         }
     }
 
-    private fun generarAnalisisFallback(objetivo: FotografiaObjetivo): AnalisisFotoResult {
+    private fun generarAnalisisFallback(): AnalisisFotoResult {
         return AnalisisFotoResult(
             esValida = true,
             descripcionIA = "Has capturado un elemento del sitio arqueológico",
             cumpleCriterios = true,
-            rarezaDetectada = objetivo.rareza,
+            rarezaDetectada = RarezaFoto.RARA,
             confianza = 0.7
         )
     }

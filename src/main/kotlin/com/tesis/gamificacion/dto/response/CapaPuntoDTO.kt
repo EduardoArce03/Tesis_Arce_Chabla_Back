@@ -1,7 +1,6 @@
 // src/main/kotlin/com/tesis/gamificacion/model/responses/CapaPuntoDTO.kt
 package com.tesis.gamificacion.model.responses
 
-import com.tesis.gamificacion.dto.response.MisionDTO
 import com.tesis.gamificacion.model.enums.NivelCapa
 import com.tesis.gamificacion.model.enums.NivelDescubrimiento
 import com.tesis.gamificacion.model.request.RecompensaDTO
@@ -10,6 +9,7 @@ import com.tesis.gamificacion.model.request.RecompensaDTO
  * DTO que representa el estado de UNA capa específica de un punto
  */
 data class CapaPuntoDTO(
+    val id: Long?, // ⬅️ AGREGAR PARA TRACKING
     val nivelCapa: NivelCapa,
     val nombre: String,
     val descripcion: String,
@@ -33,7 +33,9 @@ data class CapaPuntoDTO(
 
     // Recompensas
     val puntosGanados: Int,
-    val recompensaFinal: RecompensaDTO?
+    val recompensaFinal: RecompensaDTO?,
+
+    val completada: Boolean
 )
 
 data class FotografiaObjetivoSimpleDTO(
@@ -47,6 +49,7 @@ data class FotografiaObjetivoSimpleDTO(
  * Request para entrar/descubrir una capa específica de un punto
  */
 data class DescubrirCapaPuntoRequest(
+    val usuarioId: Long,
     val partidaId: Long,
     val puntoId: Long,
     val nivelCapa: NivelCapa
@@ -57,7 +60,7 @@ data class DescubrirCapaPuntoRequest(
  */
 data class DescubrirCapaPuntoResponse(
     val exito: Boolean,
-    val capa: CapaPuntoDTO,
+    val capa: CapaPuntoDTO?,
     val narrativaNueva: Boolean,
     val mensaje: String
 )

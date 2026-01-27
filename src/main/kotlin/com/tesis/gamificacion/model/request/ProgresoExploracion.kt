@@ -96,7 +96,9 @@ data class DescubrirPuntoRequest(
     val partidaId: Long,
 
     @field:NotNull @field:Positive
-    val puntoId: Long
+    val puntoId: Long,
+
+    val jugadorId: Long
 )
 
 data class CapturarFotografiaRequest(
@@ -109,7 +111,9 @@ data class CapturarFotografiaRequest(
     @field:NotBlank
     val imagenBase64: String,
 
-    val descripcionUsuario: String?
+    val descripcionUsuario: String?,
+
+    val jugadorId: Long
 )
 
 //data class DialogarEspirituRequest(

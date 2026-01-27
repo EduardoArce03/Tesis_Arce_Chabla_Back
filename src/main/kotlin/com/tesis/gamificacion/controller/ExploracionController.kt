@@ -1,171 +1,299 @@
-// src/main/kotlin/com/tesis/gamificacion/controller/ExploracionController.kt
 package com.tesis.gamificacion.controller
 
-import com.tesis.gamificacion.model.enums.NivelCapa
-import com.tesis.gamificacion.model.request.*
-import com.tesis.gamificacion.model.responses.*
+import com.tesis.gamificacion.model.data.CapturarFotoRequest
+import com.tesis.gamificacion.model.data.CapturarFotoResponse
+import com.tesis.gamificacion.model.data.DialogarRequest
+import com.tesis.gamificacion.model.data.DialogarResponse
+import com.tesis.gamificacion.model.data.ExplorarCapaRequest
+import com.tesis.gamificacion.model.data.ExplorarCapaResponse
+import com.tesis.gamificacion.model.data.MapaDTO
+import com.tesis.gamificacion.model.data.PartidaDTO
 import com.tesis.gamificacion.service.ExploracionService
-import com.tesis.gamificacion.service.ExploracionCapasService
-import jakarta.validation.Valid
+import org.slf4j.LoggerFactory
+import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
-import org.springframework.web.bind.annotation.*
+import org.springframework.web.bind.annotation.CrossOrigin
+import org.springframework.web.bind.annotation.DeleteMapping
+import org.springframework.web.bind.annotation.GetMapping
+import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
+import org.springframework.web.bind.annotation.RestController
 
 @RestController
 @RequestMapping("/api/exploracion")
-@CrossOrigin(origins = ["http://localhost:4200"])
+@CrossOrigin(origins = ["http://localhost:4200"]) // Ajusta según tu frontend
 class ExploracionController(
-    private val exploracionService: ExploracionService,
-    private val exploracionCapasService: ExploracionCapasService
+    private val exploracionService: ExploracionService
 ) {
 
-    // ==================== INICIALIZACIÓN ====================
+    private val log = LoggerFactory.getLogger(ExploracionController::class.java)
 
-    @PostMapping("/inicializar")
-    fun inicializarExploracion(
-        @RequestParam partidaId: Long,
-        @RequestParam usuarioId: Long
-    ): ResponseEntity<ProgresoExploracionResponse> {
-        val progreso = exploracionService.inicializarExploracion(partidaId, usuarioId)
-        return ResponseEntity.ok(progreso)
+    // ==================== INICIAR PARTIDA ====================
+
+    /**
+     * POST /api/exploracion/iniciar?jugadorId={id}
+     * Crea una nueva partida para el jugador
+     */
+    @PostMapping("/iniciar")
+    fun iniciarPartida(
+        @RequestParam jugadorId: Long
+    ): ResponseEntity<PartidaDTO> {
+        log.info("🎮 POST /iniciar - Jugador: $jugadorId")
+
+        return try {
+            val partida = exploracionService.iniciarPartida(jugadorId)
+
+            log.info("✅ Partida ${partida.id} creada exitosamente")
+            ResponseEntity.ok(partida)
+
+        } catch (e: Exception) {
+            log.error("❌ Error iniciando partida: ${e.message}", e)
+            ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build()
+        }
     }
 
-    @GetMapping("/progreso/{partidaId}")
-    fun obtenerProgresoCompleto(
+    // ==================== OBTENER MAPA ====================
+
+    /**
+     * GET /api/exploracion/mapa/{partidaId}
+     * Obtiene el estado completo del mapa con todos los puntos y capas
+     */
+    @GetMapping("/mapa/{partidaId}")
+    fun obtenerMapa(
         @PathVariable partidaId: Long
-    ): ResponseEntity<ProgresoExploracionResponse> {
-        val progreso = exploracionService.obtenerProgresoCompleto(partidaId)
-        return ResponseEntity.ok(progreso)
+    ): ResponseEntity<MapaDTO> {
+        log.info("🗺️ GET /mapa/$partidaId")
+
+        return try {
+            val mapa = exploracionService.obtenerMapa(partidaId)
+
+            log.info("✅ Mapa obtenido - ${mapa.puntos.size} puntos")
+            ResponseEntity.ok(mapa)
+
+        } catch (e: IllegalArgumentException) {
+            log.warn("⚠️ Partida no encontrada: ${e.message}")
+            ResponseEntity.status(HttpStatus.NOT_FOUND).build()
+
+        } catch (e: Exception) {
+            log.error("❌ Error obteniendo mapa: ${e.message}", e)
+            ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build()
+        }
     }
 
-    // ==================== PUNTOS DE INTERÉS ====================
+    // ==================== EXPLORAR CAPA ====================
 
-    @GetMapping("/puntos/{partidaId}")
-    fun obtenerPuntosDisponibles(
-        @PathVariable partidaId: Long
-    ): ResponseEntity<List<PuntoInteresDTO>> {
-        val puntos = exploracionService.obtenerPuntosDisponibles(partidaId)
-        return ResponseEntity.ok(puntos)
+    /**
+     * POST /api/exploracion/explorar-capa
+     * Entra a una capa específica de un punto
+     * Body: { "partidaId": 1, "puntoId": 1, "capaNivel": "ACTUAL" }
+     */
+    @PostMapping("/explorar-capa")
+    fun explorarCapa(
+        @RequestBody request: ExplorarCapaRequest
+    ): ResponseEntity<ExplorarCapaResponse> {
+        log.info("📍 POST /explorar-capa - Partida: ${request.partidaId}, Punto: ${request.puntoId}, Capa: ${request.capaNivel}")
+
+        return try {
+            val response = exploracionService.explorarCapa(request)
+
+            log.info("✅ Capa explorada - Primer descubrimiento: ${response.primerDescubrimiento}")
+            ResponseEntity.ok(response)
+
+        } catch (e: IllegalArgumentException) {
+            log.warn("⚠️ Datos inválidos: ${e.message}")
+            ResponseEntity.badRequest().body(
+                ExplorarCapaResponse(
+                    exito = false,
+                    capa = null, // Se manejará en el catch
+                    narrativa = null ,
+                    objetivosFotograficos = emptyList(),
+                    primerDescubrimiento = false,
+                    mensaje = e.message
+                )
+            )
+
+        } catch (e: IllegalStateException) {
+            log.warn("🔒 Capa bloqueada: ${e.message}")
+            ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                ExplorarCapaResponse(
+                    exito = false,
+                    capa = null,
+                    narrativa = null,
+                    objetivosFotograficos = emptyList(),
+                    primerDescubrimiento = false,
+                    mensaje = e.message
+                )
+            )
+
+        } catch (e: Exception) {
+            log.error("❌ Error explorando capa: ${e.message}", e)
+            ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build()
+        }
     }
 
-    @PostMapping("/puntos/descubrir")
-    fun descubrirPunto(
-        @Valid @RequestBody request: DescubrirPuntoRequest
-    ): ResponseEntity<DescubrimientoPuntoResponse> {
-        val resultado = exploracionService.descubrirPunto(request)
-        return ResponseEntity.ok(resultado)
-    }
+    // ==================== CAPTURAR FOTOGRAFÍA ====================
 
-    // ==================== CAPAS POR PUNTO (NUEVO) ====================
-
-    @GetMapping("/puntos/{puntoId}/capas")
-    fun obtenerCapasPunto(
-        @PathVariable puntoId: Long,
-        @RequestParam partidaId: Long,
-        @RequestParam usuarioId: Long
-    ): ResponseEntity<List<CapaPuntoDTO>> {
-        val capas = exploracionCapasService.obtenerCapasPunto(puntoId, partidaId, usuarioId)
-        return ResponseEntity.ok(capas)
-    }
-
-    @PostMapping("/puntos/capa/descubrir")
-    fun descubrirCapaPunto(
-        @Valid @RequestBody request: DescubrirCapaPuntoRequest
-    ): ResponseEntity<DescubrirCapaPuntoResponse> {
-        val resultado = exploracionCapasService.descubrirCapaPunto(request)
-        return ResponseEntity.ok(resultado)
-    }
-
-    // ==================== CAPAS TEMPORALES ====================
-
-    @GetMapping("/capas/{partidaId}")
-    fun obtenerCapas(
-        @PathVariable partidaId: Long
-    ): ResponseEntity<List<NivelCapaDTO>> {
-        val capas = exploracionService.obtenerCapas(partidaId)
-        return ResponseEntity.ok(capas)
-    }
-
-    // ==================== FOTOGRAFÍA ====================
-
-    @GetMapping("/fotografia/objetivos/{partidaId}")
-    fun obtenerObjetivosFotograficos(
-        @PathVariable partidaId: Long,
-        @RequestParam(required = false) puntoId: Long?
-    ): ResponseEntity<List<FotografiaObjetivoDTO>> {
-        val objetivos = exploracionService.obtenerObjetivosFotograficos(partidaId, puntoId)
-        return ResponseEntity.ok(objetivos)
-    }
-
-    @PostMapping("/fotografia/capturar")
+    /**
+     * POST /api/exploracion/capturar-foto
+     * Captura una fotografía de un objetivo
+     * Body: { "partidaId": 1, "progresoCapaId": 5, "objetivoId": 101, "imagenBase64": "..." }
+     */
+    @PostMapping("/capturar-foto")
     fun capturarFotografia(
-        @Valid @RequestBody request: CapturarFotografiaRequest
-    ): ResponseEntity<CapturarFotografiaResponse> {
-        val resultado = exploracionService.capturarFotografia(request)
-        return ResponseEntity.ok(resultado)
+        @RequestBody request: CapturarFotoRequest
+    ): ResponseEntity<CapturarFotoResponse> {
+        log.info("📸 POST /capturar-foto - Objetivo: ${request.objetivoId}")
+
+        return try {
+            val response = exploracionService.capturarFotografia(request)
+
+            if (response.exito) {
+                log.info("✅ Fotografía capturada - ${response.fotografiasCompletadas}/${response.fotografiasRequeridas}")
+                ResponseEntity.ok(response)
+            } else {
+                log.info("⚠️ Fotografía rechazada: ${response.mensaje}")
+                ResponseEntity.ok(response) // 200 pero con exito=false
+            }
+
+        } catch (e: IllegalArgumentException) {
+            log.warn("⚠️ Datos inválidos: ${e.message}")
+            ResponseEntity.badRequest().body(
+                CapturarFotoResponse(
+                    exito = false,
+                    mensaje = e.message ?: "Datos inválidos"
+                )
+            )
+
+        } catch (e: Exception) {
+            log.error("❌ Error capturando foto: ${e.message}", e)
+            ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                CapturarFotoResponse(
+                    exito = false,
+                    mensaje = "Error interno del servidor"
+                )
+            )
+        }
     }
 
-    @GetMapping("/fotografia/galeria/{partidaId}")
-    fun obtenerGaleriaFotografias(
+    // ==================== DIALOGAR CON ESPÍRITU ====================
+
+    /**
+     * POST /api/exploracion/dialogar
+     * Envía una pregunta al espíritu de la capa
+     * Body: { "partidaId": 1, "progresoCapaId": 5, "pregunta": "¿Qué rituales se hacían aquí?" }
+     */
+    @PostMapping("/dialogar")
+    fun dialogar(
+        @RequestBody request: DialogarRequest
+    ): ResponseEntity<DialogarResponse> {
+        log.info("💬 POST /dialogar - Pregunta: ${request.pregunta.take(50)}...")
+
+        return try {
+            val response = exploracionService.dialogar(request)
+
+            log.info("✅ Diálogo completado - Total: ${response.dialogosRealizados}")
+            ResponseEntity.ok(response)
+
+        } catch (e: IllegalArgumentException) {
+            log.warn("⚠️ Datos inválidos: ${e.message}")
+            ResponseEntity.badRequest().body(
+                DialogarResponse(
+                    exito = false,
+                    respuesta = "",
+                    nombreEspiritu = "",
+                    dialogosRealizados = 0,
+                    mensaje = e.message
+                )
+            )
+
+        } catch (e: Exception) {
+            log.error("❌ Error en diálogo: ${e.message}", e)
+            ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                DialogarResponse(
+                    exito = false,
+                    respuesta = "",
+                    nombreEspiritu = "",
+                    dialogosRealizados = 0,
+                    mensaje = "Error interno del servidor"
+                )
+            )
+        }
+    }
+
+    // ==================== ENDPOINTS ADICIONALES ÚTILES ====================
+
+    /**
+     * GET /api/exploracion/partida/{partidaId}
+     * Obtiene información básica de la partida
+     */
+    @GetMapping("/partida/{partidaId}")
+    fun obtenerPartida(
         @PathVariable partidaId: Long
-    ): ResponseEntity<List<FotografiaCapturadaDTO>> {
-        val galeria = exploracionService.obtenerGaleriaFotografias(partidaId)
-        return ResponseEntity.ok(galeria)
+    ): ResponseEntity<PartidaDTO> {
+        log.info("📊 GET /partida/$partidaId")
+
+        return try {
+            val partida = exploracionService.obtenerPartidaDTO(partidaId)
+            ResponseEntity.ok(partida)
+
+        } catch (e: IllegalArgumentException) {
+            log.warn("⚠️ Partida no encontrada")
+            ResponseEntity.status(HttpStatus.NOT_FOUND).build()
+
+        } catch (e: Exception) {
+            log.error("❌ Error obteniendo partida: ${e.message}", e)
+            ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build()
+        }
     }
 
-    // ==================== DIÁLOGOS ====================
-
-    @PostMapping("/dialogo/espiritu")
-    fun dialogarConEspiritu(
-        @Valid @RequestBody request: DialogarEspirituRequest
-    ): ResponseEntity<DialogoEspirituResponse> {
-        val resultado = exploracionService.dialogarConEspiritu(request)
-        return ResponseEntity.ok(resultado)
-    }
-
-    @GetMapping("/dialogo/historial/{partidaId}")
-    fun obtenerHistorialDialogos(
-        @PathVariable partidaId: Long,
-        @RequestParam(required = false) nivelCapa: NivelCapa?
-    ): ResponseEntity<List<DialogoHistorialDTO>> {
-        val historial = exploracionService.obtenerHistorialDialogos(partidaId, nivelCapa)
-        return ResponseEntity.ok(historial)
-    }
-
-    // ==================== MISIONES ====================
-
-    @GetMapping("/misiones/{partidaId}")
-    fun obtenerMisionesDisponibles(
+    /**
+     * DELETE /api/exploracion/partida/{partidaId}
+     * Elimina una partida (para testing o reset)
+     */
+    @DeleteMapping("/partida/{partidaId}")
+    fun eliminarPartida(
         @PathVariable partidaId: Long
-    ): ResponseEntity<List<MisionDTO>> {
-        val misiones = exploracionService.obtenerMisionesDisponibles(partidaId)
-        return ResponseEntity.ok(misiones)
+    ): ResponseEntity<Void> {
+        log.info("🗑️ DELETE /partida/$partidaId")
+
+        return try {
+            exploracionService.eliminarPartida(partidaId)
+
+            log.info("✅ Partida eliminada")
+            ResponseEntity.noContent().build()
+
+        } catch (e: IllegalArgumentException) {
+            log.warn("⚠️ Partida no encontrada")
+            ResponseEntity.status(HttpStatus.NOT_FOUND).build()
+
+        } catch (e: Exception) {
+            log.error("❌ Error eliminando partida: ${e.message}", e)
+            ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build()
+        }
     }
 
-    @PostMapping("/misiones/completar")
-    fun completarMision(
-        @Valid @RequestBody request: CompletarMisionRequest
-    ): ResponseEntity<CompletarMisionResponse> {
-        val resultado = exploracionService.completarMision(request)
-        return ResponseEntity.ok(resultado)
-    }
+    /**
+     * GET /api/exploracion/jugador/{jugadorId}/partidas
+     * Obtiene todas las partidas de un jugador
+     */
+    @GetMapping("/jugador/{jugadorId}/partidas")
+    fun obtenerPartidasJugador(
+        @PathVariable jugadorId: Long
+    ): ResponseEntity<List<PartidaDTO>> {
+        log.info("📋 GET /jugador/$jugadorId/partidas")
 
-    @PostMapping("/fotografia/marcar-manual")
-    fun marcarObjetivoManual(
-        @RequestBody request: MarcarObjetivoManualRequest
-    ): ResponseEntity<MarcarObjetivoManualResponse> {
+        return try {
+            val partidas = exploracionService.obtenerPartidasJugador(jugadorId)
 
+            log.info("✅ ${partidas.size} partidas encontradas")
+            ResponseEntity.ok(partidas)
 
-        val response = exploracionService.marcarObjetivoCompletadoManual(request)
-
-        return ResponseEntity.ok(response)
-    }
-
-    @GetMapping("/capas-punto/{partidaId}/{puntoId}")
-    fun obtenerCapasPorPunto(
-        @PathVariable partidaId: Long,
-        @PathVariable puntoId: Long
-    ): ResponseEntity<List<CapaPuntoDTO>> {
-        val capas = exploracionService.obtenerCapasPorPunto(partidaId, puntoId)
-        return ResponseEntity.ok(capas)
+        } catch (e: Exception) {
+            log.error("❌ Error obteniendo partidas: ${e.message}", e)
+            ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build()
+        }
     }
 }

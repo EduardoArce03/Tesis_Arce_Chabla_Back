@@ -46,10 +46,10 @@ class DashboardService(
 
             // Calcular estadísticas
             logger.info("📈 Calculando estadísticas...")
-            val puntuacionTotal = partidasCompletadas.sumOf { it.puntuacion }
-            val tiempoTotal = partidasCompletadas.sumOf { it.tiempoSegundos }
+            val puntuacionTotal = partidasCompletadas.sumOf { it.puntuacion ?: 0 }
+            val tiempoTotal = partidasCompletadas.sumOf { it.tiempoSegundos ?: 0 }
             val precisionPromedio = if (partidasCompletadas.isNotEmpty()) {
-                partidasCompletadas.map { calcularPrecision(it.intentos, it.nivel) }.average()
+                partidasCompletadas.map { calcularPrecision(it.intentos!!, it.nivel!!) }.average()
             } else 0.0
 
             logger.info("💯 Puntuación total: {}", puntuacionTotal)
@@ -67,7 +67,7 @@ class DashboardService(
             val todasLasPartidas = partidaRepository.findAll()
                 .filter { it.completada }
                 .groupBy { it.jugadorId }
-                .mapValues { it.value.sumOf { partida -> partida.puntuacion } }
+                .mapValues { it.value.sumOf { partida -> partida.puntuacion!! } }
                 .toList()
                 .sortedByDescending { it.second }
 
@@ -143,7 +143,7 @@ class DashboardService(
                     puntuacionTotal = puntuacionTotal,
                     tiempoTotalMinutos = tiempoTotal / 60,
                     precisionPromedio = precisionPromedio,
-                    mejorPuntuacion = partidasCompletadas.maxOfOrNull { it.puntuacion }
+                    mejorPuntuacion = partidasCompletadas.maxOfOrNull { it.puntuacion!! }
                 ),
                 rankingPosicion = RankingPosicion(
                     posicionGlobal = if (posicionGlobal > 0) posicionGlobal else 0,

@@ -45,7 +45,9 @@ data class MarcarObjetivoManualRequest(
     val partidaId: Long,
 
     @field:NotNull @field:Positive
-    val objetivoId: Long
+    val objetivoId: Long,
+
+    val usuarioId: Long
 )
 
 data class MarcarObjetivoManualResponse(

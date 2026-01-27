@@ -1,6 +1,5 @@
 package com.tesis.gamificacion.service
 
-import com.tesis.gamificacion.repository.CapaTemporalRepository
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.core.io.ByteArrayResource
 import org.springframework.http.*
@@ -12,7 +11,6 @@ import org.springframework.web.client.RestTemplate
 @Service
 class NarrativaIAService(
     private val restTemplate: RestTemplate,
-    private val capaTemporalRepository: CapaTemporalRepository, // ✅ AGREGAR
 
     @Value("\${ia.service.url}")
     private val BASE_URL: String
@@ -22,15 +20,11 @@ class NarrativaIAService(
      */
     fun generarNarrativa(
         nombrePunto: String,
-        nombreKichwa: String,
-        categoria: String,
-        nivel: com.tesis.gamificacion.model.enums.NivelCapa,
         imagenPunto: ByteArray? = null
     ): String {
-        val url = "$BASE_URL/narrativa-exploracion"
+        val url = "$BASE_URL/narrativa-exploracion2"
 
         // Obtener configuración de la capa temporal
-        val capaTemporal = capaTemporalRepository.findByNivel(nivel).firstOrNull()
 
         val body: MultiValueMap<String, Any> = LinkedMultiValueMap()
 
@@ -40,19 +34,16 @@ class NarrativaIAService(
             body.add("image", imagenResource)
         }
 
-        body.add("nivel", nivel.nombre)
         body.add("punto_nombre", nombrePunto)
-        body.add("punto_kichwa", nombreKichwa)
-        body.add("categoria", categoria)
-        body.add("prompt_narrativa", capaTemporal?.promptNarrativa ?: "")
+        body.add("prompt_narrativa",  "")
 
         return try {
             val response = ejecutarLlamadaIA(url, body, Map::class.java)
             (response?.get("narrativa") as? String)
-                ?: generarNarrativaFallback(nombrePunto, nombreKichwa, nivel)
+                ?: generarNarrativaFallback(nombrePunto)
         } catch (e: Exception) {
             println("❌ Error generando narrativa: ${e.message}")
-            generarNarrativaFallback(nombrePunto, nombreKichwa, nivel)
+            generarNarrativaFallback(nombrePunto)
         }
     }
 
@@ -86,7 +77,8 @@ class NarrativaIAService(
         imagenUrl: String,
         categoria: String,
         nombreKichwa: String,
-        nombreEspanol: String
+        nombreEspanol: String,
+        epoca: String,
     ): Map<String, Any>? {
         val url = "$BASE_URL/narrativa-educativa2"
 
@@ -106,6 +98,7 @@ class NarrativaIAService(
             body.add("concepto", categoria)
             body.add("nombre_kichwa", nombreKichwa)
             body.add("nombre_espanol", nombreEspanol)
+            body.add("epoca", epoca)
 
             // 3. Enviar request
             // Java devuelve Map<*,*>, así que lo guardamos en una variable intermedia
@@ -200,26 +193,7 @@ class NarrativaIAService(
 
     private fun generarNarrativaFallback(
         nombrePunto: String,
-        nombreKichwa: String,
-        nivel: com.tesis.gamificacion.model.enums.NivelCapa
     ): String {
-        return when (nivel) {
-            com.tesis.gamificacion.model.enums.NivelCapa.SUPERFICIE -> {
-                "$nombrePunto ($nombreKichwa) es uno de los puntos más importantes " +
-                        "de Ingapirca. Hoy en día, puedes observar las magníficas estructuras que han resistido el paso del tiempo."
-            }
-            com.tesis.gamificacion.model.enums.NivelCapa.INCA -> {
-                "Durante el período Inca (1470-1532), $nombrePunto fue un centro ceremonial de gran importancia. " +
-                        "Los sacerdotes realizaban rituales en honor al Sol, y la arquitectura refleja la maestría de los constructores incas."
-            }
-            com.tesis.gamificacion.model.enums.NivelCapa.CANARI -> {
-                "Antes de la llegada de los Incas, los Cañaris veneraban este lugar. $nombrePunto tiene raíces " +
-                        "profundas en la cultura Cañari, que se remontan al año 500 d.C. Las tradiciones ancestrales aún resuenan aquí."
-            }
-            com.tesis.gamificacion.model.enums.NivelCapa.ANCESTRAL -> {
-                "Las leyendas hablan de $nombrePunto como un lugar de poder ancestral. " +
-                        "Los antiguos creían que aquí se conectaban los tres mundos: el cielo, la tierra y el inframundo."
-            }
-        }
+        return "Esta es una narrativa de fallback"
     }
 }
