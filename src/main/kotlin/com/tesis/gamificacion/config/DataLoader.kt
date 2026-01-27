@@ -30,7 +30,7 @@ class DataLoader(
             ElementoCultural(
                 nombreKichwa = "Kushma",
                 nombreEspanol = "Túnica",
-                imagenUrl = "https://tesis-edu.s3.us-east-1.amazonaws.com/kushma.jpg",
+                imagenUrl = "https://tesis-edu.s3.us-east-1.amazonaws.com/kushma.jpeg",
                 categoria = CategoriasCultural.VESTIMENTA,
                 descripcion = "Túnica tradicional de los pueblos andinos"
             ),
