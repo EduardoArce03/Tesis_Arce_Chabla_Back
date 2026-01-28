@@ -280,24 +280,46 @@ class PartidaService(
         )
     }
 
-    @Transactional(readOnly = true)
     fun obtenerRankingGlobal(limite: Int = 10): List<RankingResponse> {
-        val partidas = partidaRepository.findTopScores(limite)
 
-        val usuario = usuarioRepository
+        logger.info("🌍 Obteniendo ranking global, limite=$limite")
 
-        return partidas.mapIndexed { index, partida ->
-            val usuario =usuarioRepository.findById(partida.jugadorId.toLong()).orElse(null)
+        // Obtener TODAS las partidas
+        val todasLasPartidas = partidaRepository.findAll()
+            .filter { it.fechaFin != null } // Solo partidas completadas
+
+        logger.info("   Total partidas completadas: ${todasLasPartidas.size}")
+
+        // Agrupar por jugador y sumar puntuaciones
+        val rankingPorJugador = todasLasPartidas
+            .groupBy { it.jugadorId }
+            .map { (jugadorId, partidas) ->
+                val puntuacionTotal = partidas.sumOf { it.puntuacion }
+                val tiempoTotal = partidas.sumOf { it.tiempoSegundos }
+                val partidasJugadas = partidas.size
+                val mejorPartida = partidas.maxByOrNull { it.puntuacion }!!
+
+                Triple(jugadorId, puntuacionTotal, mejorPartida)
+            }
+            .sortedByDescending { it.second } // Ordenar por puntuación total
+            .take(limite)
+
+        // Mapear a RankingResponse
+        return rankingPorJugador.mapIndexed { index, (jugadorId, puntuacionTotal, mejorPartida) ->
+            val usuario = usuarioRepository.findById(jugadorId.toLong()).orElse(null)
+
             RankingResponse(
                 posicion = index + 1,
-                jugadorId = partida.jugadorId,
-                puntuacion = partida.puntuacion,
-                nivel = partida.nivel,
-                categoria = partida.categoria,
-                tiempoSegundos = partida.tiempoSegundos,
-                fecha = partida.fechaFin ?: partida.fechaInicio,
-                nombreJugador = usuario.nombre
+                jugadorId = jugadorId,
+                puntuacion = puntuacionTotal,
+                nivel = mejorPartida.nivel,
+                categoria = mejorPartida.categoria,
+                tiempoSegundos = mejorPartida.tiempoSegundos,
+                fecha = mejorPartida.fechaFin ?: mejorPartida.fechaInicio,
+                nombreJugador = usuario?.nombre ?: "Jugador $jugadorId"
             )
+        }.also {
+            logger.info("✅ Ranking global generado con ${it.size} posiciones")
         }
     }
 
@@ -307,13 +329,40 @@ class PartidaService(
         categoria: CategoriasCultural,
         limite: Int = 10
     ): List<RankingResponse> {
-        val partidas = partidaRepository.findTopScoresByNivelAndCategoria(nivel, categoria)
-            .take(limite)
 
+        logger.info("📊 Obteniendo ranking: nivel=$nivel, categoria=$categoria, limite=$limite")
 
+        // Obtener todas las partidas
+        val todasLasPartidas = partidaRepository.findTopScoresByNivelAndCategoria(nivel, categoria)
 
-        return partidas.mapIndexed { index, partida ->
+        logger.info("   Total partidas encontradas: ${todasLasPartidas.size}")
+
+        // Agrupar por jugador y tomar solo la MEJOR partida de cada uno
+        val mejoresPartidasPorJugador = todasLasPartidas
+            .groupBy { it.jugadorId }
+            .mapValues { (_, partidas) ->
+                // Para cada jugador, tomar la partida con mejor puntuación
+                partidas.maxByOrNull { partida ->
+                    // Criterio 1: Mayor puntuación
+                    // Criterio 2: Si empatan, menor tiempo
+                    partida.puntuacion * 10000 - partida.tiempoSegundos
+                }
+            }
+            .values
+            .filterNotNull()
+
+        logger.info("   Jugadores únicos: ${mejoresPartidasPorJugador.size}")
+
+        // Ordenar por puntuación (desc) y tiempo (asc)
+        val partidasOrdenadas = mejoresPartidasPorJugador.sortedWith(
+            compareByDescending<Partida> { it.puntuacion }
+                .thenBy { it.tiempoSegundos }
+        ).take(limite)
+
+        // Mapear a RankingResponse
+        return partidasOrdenadas.mapIndexed { index, partida ->
             val usuario = usuarioRepository.findById(partida.jugadorId.toLong()).orElse(null)
+
             RankingResponse(
                 posicion = index + 1,
                 jugadorId = partida.jugadorId,
@@ -322,8 +371,13 @@ class PartidaService(
                 categoria = partida.categoria,
                 tiempoSegundos = partida.tiempoSegundos,
                 fecha = partida.fechaFin ?: partida.fechaInicio,
-                nombreJugador = usuario.nombre
+                nombreJugador = usuario?.nombre ?: "Jugador ${partida.jugadorId}"
             )
+        }.also {
+            logger.info("✅ Ranking generado con ${it.size} posiciones")
+            it.forEachIndexed { idx, ranking ->
+                logger.info("   #${idx + 1}: ${ranking.nombreJugador} - ${ranking.puntuacion} pts (${ranking.tiempoSegundos}s)")
+            }
         }
     }
 
